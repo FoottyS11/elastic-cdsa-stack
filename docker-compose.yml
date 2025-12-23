@@ -175,33 +175,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # =============================================
-  # METRICBEAT - Collecte de métriques système
-  # =============================================
-  metricbeat:
-    image: docker.elastic.co/beats/metricbeat:${ELASTIC_VERSION}
-    container_name: metricbeat
-    hostname: metricbeat
-    user: root
-    command: metricbeat -e -strict.perms=false
-    environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-    volumes:
-      - ./config/metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
-      - /proc:/hostfs/proc:ro
-      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
-      - /:/hostfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - metricbeat-data:/usr/share/metricbeat/data
-    networks:
-      - elastic-network
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-      setup:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
 # =============================================
 # VOLUMES PERSISTANTS
 # =============================================
@@ -209,8 +182,6 @@ volumes:
   elasticsearch-data:
     driver: local
   logstash-data:
-    driver: local
-  metricbeat-data:
     driver: local
 
 # =============================================

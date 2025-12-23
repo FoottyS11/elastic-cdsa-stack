@@ -39,16 +39,14 @@ Cette plateforme me permet de :
 graph TB
     A[📁 Fichiers de Logs<br/>HTB, CTF, Pentest] -->|Upload| B[Kibana UI<br/>Port 5601]
     C[📡 Logs TCP/UDP] -->|Port 5000| D[Logstash<br/>Pipeline]
-    E[📊 Métriques Système] --> F[Metricbeat]
     
     B --> G[Elasticsearch<br/>Port 9200]
     D --> G
-    F --> G
     
     G --> H[Index & Storage]
     H --> I[Dashboards & Analytics]
     
-    J[Fleet Server<br/>Port 8220] -->|Gestion| F
+    J[Fleet Server<br/>Port 8220] -->|Gestion| K[Agents Distants]
     
     style A fill:#ff6b6b
     style B fill:#4ecdc4
@@ -63,8 +61,7 @@ graph TB
 | **Elasticsearch** | Moteur de recherche & BDD NoSQL | 9200 | Indexation et stockage distribué des logs. Recherche full-text ultra-rapide. |
 | **Kibana** | Interface de visualisation | 5601 | Dashboard interactif, upload de fichiers, création de visualisations. |
 | **Logstash** | Pipeline de traitement | 5000, 5044, 9600 | Parsing, enrichissement et transformation des logs en temps réel. |
-| **Metricbeat** | Collecteur de métriques | - | Surveillance CPU, RAM, disque, réseau. Corrélation perf/logs. |
-| **Fleet Server** | Gestion centralisée | 8220 | Orchestration et configuration des agents Elastic. |
+| **Fleet Server** | Gestion centralisée | 8220 | Orchestration et configuration des agents Elastic distants. |
 
 ---
 
@@ -337,7 +334,7 @@ docker compose logs -f kibana
 
 ```
 elastic-cdsa-stack/
-├── 📄 docker-compose.yml        # Orchestration des 5 services
+├── 📄 docker-compose.yml        # Orchestration des 4 services
 ├── 📄 .env                      # Configuration (passwords, ports, resources)
 ├── 📄 README.md                 # Cette documentation
 │
@@ -347,8 +344,7 @@ elastic-cdsa-stack/
 │   │   └── pipeline/
 │   │       └── logstash.conf    # Pipeline de parsing
 │   │
-│   └── 📂 metricbeat/
-│       └── metricbeat.yml       # Config collecte métriques
+│   └── 📂 
 │
 └── 📂 scripts/
     ├── 🚀 start.sh              # Démarrage de la stack
@@ -492,7 +488,6 @@ in the Software without restriction.
 | Elasticsearch | ✅ Operational | Indexation & recherche full-text |
 | Kibana | ✅ Accessible | Interface web avec upload de fichiers |
 | Logstash | ✅ Pipeline actif | Parsing TCP/UDP/Beats |
-| Metricbeat | ✅ Collecte active | Métriques système & Docker |
 | Fleet Server | ✅ Opérationnel | Gestion centralisée agents |
 
 ---
