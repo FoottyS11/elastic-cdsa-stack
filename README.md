@@ -2,6 +2,17 @@
 
 Stack Elastic complète et prête à l'emploi pour la **Certification DevSecOps Associate (CDSA)**. Cette stack inclut Elasticsearch, Kibana, Logstash, Metricbeat et Fleet Server pour **l'import, l'analyse et la visualisation de vos fichiers de logs** (HTB, CTF, etc.).
 
+## ⚠️ SÉCURITÉ - À LIRE EN PREMIER
+
+**Credentials par défaut : `admin / admin`**
+
+🚨 **IMPORTANT** : Cette stack utilise des credentials **TRÈS FAIBLES** par défaut (`admin/admin`) pour faciliter les tests.
+
+**AVANT toute utilisation sérieuse :**
+1. Modifier `ELASTIC_PASSWORD` et `KIBANA_PASSWORD` dans le fichier `.env`
+2. Relancer la stack : `./scripts/reset.sh && ./scripts/start.sh`
+3. Ne **JAMAIS** exposer cette stack sur Internet avec ces credentials
+
 ## 📋 Prérequis
 
 - Docker 20.10+
@@ -27,8 +38,8 @@ sudo sysctl -w vm.max_map_count=262144
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **Kibana** | http://localhost:5601 | elastic / changeme123 |
-| **Elasticsearch** | http://localhost:9200 | elastic / changeme123 |
+| **Kibana** | http://localhost:5601 | **admin / admin** ⚠️ |
+| **Elasticsearch** | http://localhost:9200 | **admin / admin** ⚠️ |
 | **Logstash** | http://localhost:9600 | - |
 | **Fleet Server** | http://localhost:8220 | - |
 
@@ -113,7 +124,7 @@ Filebeat collecte automatiquement:
 \`\`\`bash
 curl -X POST "localhost:9200/mes-logs/_doc" \\
   -H 'Content-Type: application/json' \\
-  -u elastic:changeme123 \\
+  -u elastic:admin \
   -d '{
     "timestamp": "'\$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
     "message": "Mon message de log",
@@ -124,13 +135,31 @@ curl -X POST "localhost:9200/mes-logs/_doc" \\
 
 ## �� Sécurité
 
-**⚠️ IMPORTANT**: Cette stack est configurée pour un environnement de **développement/formation**.
+**⚠️ DANGER - Credentials faibles par défaut !**
 
-Pour la production:
-- Changer le mot de passe dans [.env](.env)
-- Activer SSL/TLS
-- Configurer un firewall
-- Utiliser des certificats valides
+Cette stack utilise `admin/admin` par défaut. **C'EST EXTRÊMEMENT DANGEREUX** si exposé !
+
+### ✅ Changer les mots de passe (OBLIGATOIRE pour usage réel)
+
+```bash
+# 1. Éditer le fichier .env
+nano .env
+
+# 2. Modifier ces lignes :
+ELASTIC_PASSWORD=VotreMotDePasseForT123!
+KIBANA_PASSWORD=VotreMotDePasseForT123!
+
+# 3. Réinitialiser la stack
+./scripts/reset.sh
+./scripts/start.sh
+```
+
+### Pour la production :
+- ✅ **Changer TOUS les mots de passe** (minimum 16 caractères)
+- ✅ Activer SSL/TLS
+- ✅ Configurer un firewall strict
+- ✅ Utiliser des certificats valides
+- ✅ Ne JAMAIS exposer sur Internet avec `admin/admin`
 
 ## 📁 Structure du projet
 
@@ -182,7 +211,7 @@ sudo docker compose logs elasticsearch
 sudo docker compose ps
 
 # Vérifier les indices dans Elasticsearch
-curl -u elastic:changeme123 http://localhost:9200/_cat/indices?v
+curl -u elastic:admin http://localhost:9200/_cat/indices?v
 \`\`\`
 
 ### Comment uploader mes fichiers de logs ?
