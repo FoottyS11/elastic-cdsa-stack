@@ -101,19 +101,24 @@ processors:
           message: "^{.*}$"
 
 # =============================================
-# OUTPUT - Envoi vers Logstash
+# OUTPUT - Envoi direct vers Elasticsearch
 # =============================================
-output.logstash:
-  hosts: ["logstash:5044"]
-  loadbalance: true
-  bulk_max_size: 1024
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+  index: "filebeat-%{[agent.version]}-%{+yyyy.MM.dd}"
 
-# Alternative: Envoi direct vers Elasticsearch
-# output.elasticsearch:
-#   hosts: ["elasticsearch:9200"]
-#   username: "elastic"
-#   password: "${ELASTIC_PASSWORD}"
-#   index: "filebeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+# Setup template settings
+setup.template.name: "filebeat"
+setup.template.pattern: "filebeat-*"
+setup.ilm.enabled: false
+
+# Alternative: Envoi via Logstash
+# output.logstash:
+#   hosts: ["logstash:5044"]
+#   loadbalance: true
+#   bulk_max_size: 1024
 
 # =============================================
 # LOGGING

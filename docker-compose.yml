@@ -11,7 +11,7 @@ services:
     command: >
       bash -c '
         echo "Waiting for Elasticsearch availability...";
-        until curl -s http://elasticsearch:9200 | grep -q "cluster_name"; do sleep 10; done;
+        until curl -s -u "elastic:${ELASTIC_PASSWORD}" http://elasticsearch:9200 | grep -q "cluster_name"; do sleep 10; done;
         echo "Elasticsearch is up!";
         
         echo "Setting kibana_system password...";
@@ -126,12 +126,9 @@ services:
     environment:
       - LS_JAVA_OPTS=${LS_JAVA_OPTS}
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - xpack.monitoring.elasticsearch.hosts=http://elasticsearch:9200
-      - xpack.monitoring.elasticsearch.username=elastic
-      - xpack.monitoring.elasticsearch.password=${ELASTIC_PASSWORD}
     volumes:
       - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
-      - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
       - logstash-data:/usr/share/logstash/data
     ports:
       - "${LOGSTASH_BEATS_PORT}:5044"

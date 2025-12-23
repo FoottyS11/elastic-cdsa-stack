@@ -103,6 +103,11 @@ output.elasticsearch:
   password: "${ELASTIC_PASSWORD}"
   index: "metricbeat-%{[agent.version]}-%{+yyyy.MM.dd}"
 
+# Setup template settings
+setup.template.name: "metricbeat"
+setup.template.pattern: "metricbeat-*"
+setup.ilm.enabled: false
+
 # =============================================
 # KIBANA
 # =============================================
