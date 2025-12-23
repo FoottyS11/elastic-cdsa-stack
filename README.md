@@ -19,7 +19,7 @@
 
 **Auteur:** CyberLama  
 **Profil:** Étudiant en Cybersécurité  
-**Contexte:** Préparation à la certification **CDSA (Certified DevSecOps Associate)**
+**Contexte:** Préparation à la certification **CDSA (Certified Defensive Security Analyst)**
 
 ### 🎓 Objectif du projet
 
