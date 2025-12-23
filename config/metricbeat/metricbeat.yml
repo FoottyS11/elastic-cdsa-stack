@@ -1,0 +1,136 @@
+# =============================================
+# METRICBEAT CONFIGURATION
+# Pour la CDSA - Monitoring système
+# =============================================
+
+# =============================================
+# MODULES
+# =============================================
+metricbeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+  reload.period: 10s
+
+# =============================================
+# MODULES ACTIVÉS
+# =============================================
+metricbeat.modules:
+
+  # Métriques système (CPU, mémoire, disque, réseau)
+  - module: system
+    metricsets:
+      - cpu
+      - load
+      - memory
+      - network
+      - process
+      - process_summary
+      - socket_summary
+      - filesystem
+      - fsstat
+      - diskio
+    enabled: true
+    period: 10s
+    processes: ['.*']
+    cpu.metrics: ["percentages", "normalized_percentages"]
+    core.metrics: ["percentages"]
+    hostfs: "/hostfs"
+
+  # Métriques Docker
+  - module: docker
+    metricsets:
+      - container
+      - cpu
+      - diskio
+      - healthcheck
+      - info
+      - memory
+      - network
+    enabled: true
+    period: 10s
+    hosts: ["unix:///var/run/docker.sock"]
+
+  # Métriques Elasticsearch
+  - module: elasticsearch
+    metricsets:
+      - node
+      - node_stats
+      - cluster_stats
+      - index
+      - index_recovery
+      - index_summary
+      - shard
+      - ml_job
+    enabled: true
+    period: 10s
+    hosts: ["http://elasticsearch:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+
+  # Métriques Kibana
+  - module: kibana
+    metricsets: ["status"]
+    enabled: true
+    period: 10s
+    hosts: ["http://kibana:5601"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+
+  # Métriques Logstash
+  - module: logstash
+    metricsets: ["node", "node_stats"]
+    enabled: true
+    period: 10s
+    hosts: ["http://logstash:9600"]
+
+# =============================================
+# PROCESSORS
+# =============================================
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+      netinfo.enabled: true
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+# =============================================
+# OUTPUT - Elasticsearch
+# =============================================
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+  index: "metricbeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+
+# =============================================
+# KIBANA
+# =============================================
+setup.kibana:
+  host: "http://kibana:5601"
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+
+# Chargement automatique des dashboards
+setup.dashboards.enabled: true
+
+# =============================================
+# LOGGING
+# =============================================
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/metricbeat
+  name: metricbeat
+  keepfiles: 7
+  permissions: 0644
+
+# =============================================
+# MONITORING
+# =============================================
+monitoring:
+  enabled: true
+  elasticsearch:
+    hosts: ["http://elasticsearch:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"

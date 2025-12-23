@@ -1,0 +1,45 @@
+# =============================================
+# Git Ignore - Elastic Stack
+# =============================================
+
+# Données persistantes (ne pas versionner)
+data/
+*.data
+
+# Logs locaux
+logs/
+*.log
+
+# Fichiers sensibles (adapter le .env si besoin)
+# .env  # Décommentez si vous ne voulez pas versionner le .env
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Backup files
+*.bak
+*.backup
+
+# Certificats SSL (si vous en générez)
+certs/
+*.pem
+*.key
+*.crt
+*.p12
+
+# Docker
+.docker/

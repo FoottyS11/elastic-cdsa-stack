@@ -1,0 +1,15 @@
+---
+# Logstash Configuration File
+# Documentation: https://www.elastic.co/guide/en/logstash/current/logstash-settings-file.html
+
+http.host: "0.0.0.0"
+path.config: /usr/share/logstash/pipeline
+
+# Monitoring
+xpack.monitoring.enabled: true
+xpack.monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Pipeline settings
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50

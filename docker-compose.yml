@@ -1,0 +1,255 @@
+version: "3.8"
+
+services:
+  # =============================================
+  # SETUP - Configuration initiale
+  # =============================================
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: elastic-setup
+    user: "0"
+    command: >
+      bash -c '
+        echo "Waiting for Elasticsearch availability...";
+        until curl -s http://elasticsearch:9200 | grep -q "cluster_name"; do sleep 10; done;
+        echo "Elasticsearch is up!";
+        
+        echo "Setting kibana_system password...";
+        until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" \
+          -H "Content-Type: application/json" \
+          http://elasticsearch:9200/_security/user/kibana_system/_password \
+          -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "Password set successfully!";
+        
+        echo "Creating logstash_internal user...";
+        curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" \
+          -H "Content-Type: application/json" \
+          http://elasticsearch:9200/_security/user/logstash_internal \
+          -d "{\"password\":\"${ELASTIC_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"Logstash Internal\"}";
+        
+        echo "Creating logstash_writer role...";
+        curl -s -X PUT -u "elastic:${ELASTIC_PASSWORD}" \
+          -H "Content-Type: application/json" \
+          http://elasticsearch:9200/_security/role/logstash_writer \
+          -d "{\"cluster\":[\"manage_index_templates\",\"monitor\",\"manage_ilm\"],\"indices\":[{\"names\":[\"logs-*\",\"logstash-*\",\"filebeat-*\",\"metricbeat-*\",\"winlogbeat-*\",\"packetbeat-*\"],\"privileges\":[\"write\",\"create\",\"create_index\",\"manage\",\"manage_ilm\"]}]}";
+        
+        echo "Setup completed!";
+      '
+    networks:
+      - elastic-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+
+  # =============================================
+  # ELASTICSEARCH - Moteur de recherche et stockage
+  # =============================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: elasticsearch
+    hostname: elasticsearch
+    environment:
+      - node.name=${NODE_NAME}
+      - cluster.name=${CLUSTER_NAME}
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.license.self_generated.type=${LICENSE}
+      - xpack.monitoring.collection.enabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "${ES_PORT}:9200"
+    networks:
+      - elastic-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # =============================================
+  # KIBANA - Interface Web
+  # =============================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
+    container_name: kibana
+    hostname: kibana
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+      - XPACK_FLEET_AGENTS_ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
+      - XPACK_FLEET_AGENTS_FLEET_SERVER_HOSTS=["http://fleet-server:8220"]
+    ports:
+      - "${KIBANA_PORT}:5601"
+    networks:
+      - elastic-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # =============================================
+  # LOGSTASH - Pipeline de traitement de données
+  # =============================================
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}
+    container_name: logstash
+    hostname: logstash
+    environment:
+      - LS_JAVA_OPTS=${LS_JAVA_OPTS}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.monitoring.elasticsearch.hosts=http://elasticsearch:9200
+      - xpack.monitoring.elasticsearch.username=elastic
+      - xpack.monitoring.elasticsearch.password=${ELASTIC_PASSWORD}
+    volumes:
+      - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - logstash-data:/usr/share/logstash/data
+    ports:
+      - "${LOGSTASH_BEATS_PORT}:5044"
+      - "${LOGSTASH_TCP_PORT}:5000/tcp"
+      - "${LOGSTASH_UDP_PORT}:5000/udp"
+      - "9600:9600"
+    networks:
+      - elastic-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q 'host'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================
+  # FLEET SERVER - Gestion centralisée des agents
+  # =============================================
+  fleet-server:
+    image: docker.elastic.co/beats/elastic-agent:${ELASTIC_VERSION}
+    container_name: fleet-server
+    hostname: fleet-server
+    environment:
+      - FLEET_SERVER_ENABLE=true
+      - FLEET_SERVER_POLICY_ID=fleet-server-policy
+      - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - FLEET_SERVER_ELASTICSEARCH_USERNAME=elastic
+      - FLEET_SERVER_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - FLEET_SERVER_INSECURE_HTTP=true
+      - KIBANA_HOST=http://kibana:5601
+      - KIBANA_USERNAME=elastic
+      - KIBANA_PASSWORD=${ELASTIC_PASSWORD}
+    ports:
+      - "${FLEET_PORT}:8220"
+    networks:
+      - elastic-network
+    depends_on:
+      kibana:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # =============================================
+  # FILEBEAT - Collecte de logs fichiers
+  # =============================================
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
+    container_name: filebeat
+    hostname: filebeat
+    user: root
+    command: filebeat -e -strict.perms=false
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ./config/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-data:/usr/share/filebeat/data
+    networks:
+      - elastic-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # =============================================
+  # METRICBEAT - Collecte de métriques système
+  # =============================================
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:${ELASTIC_VERSION}
+    container_name: metricbeat
+    hostname: metricbeat
+    user: root
+    command: metricbeat -e -strict.perms=false
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ./config/metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
+      - /proc:/hostfs/proc:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - metricbeat-data:/usr/share/metricbeat/data
+    networks:
+      - elastic-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+# =============================================
+# VOLUMES PERSISTANTS
+# =============================================
+volumes:
+  elasticsearch-data:
+    driver: local
+  logstash-data:
+    driver: local
+  filebeat-data:
+    driver: local
+  metricbeat-data:
+    driver: local
+
+# =============================================
+# RÉSEAU
+# =============================================
+networks:
+  elastic-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

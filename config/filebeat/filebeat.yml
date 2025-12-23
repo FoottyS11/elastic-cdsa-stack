@@ -1,0 +1,148 @@
+# =============================================
+# FILEBEAT CONFIGURATION
+# Pour la CDSA - Collecte de logs
+# =============================================
+
+# =============================================
+# INPUTS - Sources de logs
+# =============================================
+filebeat.inputs:
+
+  # Logs système Linux
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/syslog
+      - /var/log/messages
+      - /var/log/auth.log
+      - /var/log/secure
+    fields:
+      log_type: syslog
+    fields_under_root: true
+    multiline.pattern: '^[A-Z][a-z]{2} [ 0-9][0-9]'
+    multiline.negate: true
+    multiline.match: after
+
+  # Logs Apache/Nginx
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/apache2/*.log
+      - /var/log/nginx/*.log
+      - /var/log/httpd/*.log
+    fields:
+      log_type: webserver
+    fields_under_root: true
+
+  # Logs SSH
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/auth.log
+      - /var/log/secure
+    fields:
+      log_type: ssh
+    fields_under_root: true
+    include_lines: ['sshd']
+
+  # Logs Docker containers
+  - type: container
+    enabled: true
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    fields:
+      log_type: docker
+    fields_under_root: true
+
+  # Logs d'audit Linux
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/audit/audit.log
+    fields:
+      log_type: audit
+    fields_under_root: true
+
+# =============================================
+# MODULES
+# =============================================
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+  reload.period: 10s
+
+# =============================================
+# PROCESSORS
+# =============================================
+processors:
+  # Ajouter les métadonnées de l'hôte
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+
+  # Ajouter les métadonnées du cloud (si applicable)
+  - add_cloud_metadata: ~
+
+  # Ajouter les métadonnées Docker
+  - add_docker_metadata: ~
+
+  # Ajouter un fingerprint pour déduplication
+  - fingerprint:
+      fields: ["message", "@timestamp"]
+      target_field: "@metadata.fingerprint"
+
+  # Décoder les JSON dans le message
+  - decode_json_fields:
+      fields: ["message"]
+      target: "json"
+      overwrite_keys: true
+      add_error_key: true
+      when:
+        regexp:
+          message: "^{.*}$"
+
+# =============================================
+# OUTPUT - Envoi vers Logstash
+# =============================================
+output.logstash:
+  hosts: ["logstash:5044"]
+  loadbalance: true
+  bulk_max_size: 1024
+
+# Alternative: Envoi direct vers Elasticsearch
+# output.elasticsearch:
+#   hosts: ["elasticsearch:9200"]
+#   username: "elastic"
+#   password: "${ELASTIC_PASSWORD}"
+#   index: "filebeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+
+# =============================================
+# LOGGING
+# =============================================
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+
+# =============================================
+# MONITORING
+# =============================================
+monitoring:
+  enabled: true
+  elasticsearch:
+    hosts: ["http://elasticsearch:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+
+# =============================================
+# KIBANA (pour les dashboards)
+# =============================================
+setup.kibana:
+  host: "http://kibana:5601"
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+
+# Chargement automatique des dashboards
+setup.dashboards.enabled: true
