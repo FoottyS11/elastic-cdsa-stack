@@ -46,8 +46,6 @@ graph TB
     G --> H[Index & Storage]
     H --> I[Dashboards & Analytics]
     
-    J[Fleet Server<br/>Port 8220] -->|Gestion| K[Agents Distants]
-    
     style A fill:#ff6b6b
     style B fill:#4ecdc4
     style G fill:#00bfb3
@@ -61,7 +59,6 @@ graph TB
 | **Elasticsearch** | Moteur de recherche & BDD NoSQL | 9200 | Indexation et stockage distribué des logs. Recherche full-text ultra-rapide. |
 | **Kibana** | Interface de visualisation | 5601 | Dashboard interactif, upload de fichiers, création de visualisations. |
 | **Logstash** | Pipeline de traitement | 5000, 5044, 9600 | Parsing, enrichissement et transformation des logs en temps réel. |
-| **Fleet Server** | Gestion centralisée | 8220 | Orchestration et configuration des agents Elastic distants. |
 
 ---
 
@@ -107,7 +104,7 @@ KIBANA_PASSWORD=VotreMotDePasseSuperSecurise123!
 - **Docker Compose** V2+ (inclus avec Docker Desktop)
 - **Système d'exploitation** : Linux, macOS, ou Windows avec WSL2
 - **RAM** : 4GB minimum, **8GB recommandé**
-- **Ports libres** : 5601, 9200, 5000, 8220
+- **Ports libres** : 5601, 9200, 5000
 
 ---
 
@@ -334,7 +331,7 @@ docker compose logs -f kibana
 
 ```
 elastic-cdsa-stack/
-├── 📄 docker-compose.yml        # Orchestration des 4 services
+├── 📄 docker-compose.yml        # Orchestration des 3 services
 ├── 📄 .env                      # Configuration (passwords, ports, resources)
 ├── 📄 README.md                 # Cette documentation
 │
@@ -377,7 +374,6 @@ LS_JAVA_OPTS=-Xms512m -Xmx512m
 ES_PORT=9200
 KIBANA_PORT=5601
 LOGSTASH_TCP_PORT=5000
-FLEET_PORT=8220
 ```
 
 ---
@@ -488,7 +484,6 @@ in the Software without restriction.
 | Elasticsearch | ✅ Operational | Indexation & recherche full-text |
 | Kibana | ✅ Accessible | Interface web avec upload de fichiers |
 | Logstash | ✅ Pipeline actif | Parsing TCP/UDP/Beats |
-| Fleet Server | ✅ Opérationnel | Gestion centralisée agents |
 
 ---
 
