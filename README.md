@@ -1,6 +1,6 @@
 # 🔍 Stack Elastic CDSA - Docker Compose
 
-Stack Elastic complète et prête à l'emploi pour la **Certification DevSecOps Associate (CDSA)**. Cette stack inclut Elasticsearch, Kibana, Logstash, Filebeat, Metricbeat et Fleet Server pour la collecte, l'analyse et la visualisation de logs et métriques.
+Stack Elastic complète et prête à l'emploi pour la **Certification DevSecOps Associate (CDSA)**. Cette stack inclut Elasticsearch, Kibana, Logstash, Metricbeat et Fleet Server pour **l'import, l'analyse et la visualisation de vos fichiers de logs** (HTB, CTF, etc.).
 
 ## 📋 Prérequis
 
@@ -65,31 +65,33 @@ sudo docker compose ps
 
 ### 3. **Logstash** (Ports 5044, 5000, 9600)
 - Pipeline de traitement des données
-- Reçoit les logs via Beats (port 5044)
+- Reçoit les logs via TCP/UDP (port 5000)
 - API de monitoring (port 9600)
 
-### 4. **Filebeat**
-- Collecte les logs système et applications
-- Envoie vers Elasticsearch
-- Surveillance des conteneurs Docker
-
-### 5. **Metricbeat**
+### 4. **Metricbeat**
 - Collecte les métriques système (CPU, RAM, disque)
 - Surveillance Docker
 - Métriques réseau
 
-### 6. **Fleet Server** (Port 8220)
+### 5. **Fleet Server** (Port 8220)
 - Gestion centralisée des agents Elastic
 - Déploiement de politiques
 - Surveillance des agents
 
 ## 📊 Import de logs
 
-### Via Kibana UI (Recommandé)
+### 🎯 Via Kibana UI - Upload de fichiers (RECOMMANDÉ pour HTB/CTF)
 1. Ouvrir Kibana: http://localhost:5601
-2. Aller dans **Menu** → **Management** → **Stack Management**
-3. Cliquer sur **Data** → **Index Management**
-4. Utiliser **Upload a file** ou **Create data view**
+2. **Menu** (☰) → **Machine Learning** → **Data Visualizer**
+3. Cliquer sur **Upload file**
+4. **Glisser-déposer** ton fichier de logs (`.log`, `.txt`, `.csv`, `.json`)
+5. Kibana détecte automatiquement le format et crée l'index
+6. Cliquer sur **Import** pour analyser tes logs
+
+### Via Kibana - Index Management
+1. **Menu** → **Management** → **Stack Management**
+2. **Data** → **Index Management**
+3. **Create data view** pour visualiser tes données
 
 ### Via Logstash TCP/UDP
 \`\`\`bash
@@ -105,7 +107,7 @@ Filebeat collecte automatiquement:
 - \`/var/log/syslog\`
 - \`/var/log/auth.log\`
 - Logs des conteneurs Docker
-- Logs Apache/Nginx
+\`\`\`
 
 ### Via API Elasticsearch
 \`\`\`bash
@@ -137,8 +139,6 @@ Pour la production:
 ├── docker-compose.yml          # Configuration des services
 ├── .env                        # Variables d'environnement
 ├── config/
-│   ├── filebeat/
-│   │   └── filebeat.yml       # Config collecte de logs
 │   ├── logstash/
 │   │   ├── config/
 │   │   │   └── logstash.yml   # Config Logstash
@@ -155,6 +155,7 @@ Pour la production:
 ## 🎯 Cas d'usage CDSA
 
 Cette stack permet de:
+- ✅ **Uploader et analyser vos fichiers de logs** (HTB, CTF, pentest)
 - ✅ Centraliser les logs de plusieurs sources
 - ✅ Analyser les événements de sécurité
 - ✅ Surveiller les métriques système
@@ -177,12 +178,18 @@ sudo docker compose logs elasticsearch
 
 ### Pas de données dans Kibana
 \`\`\`bash
-# Vérifier que Filebeat/Metricbeat fonctionnent
+# Vérifier que les services fonctionnent
 sudo docker compose ps
 
 # Vérifier les indices dans Elasticsearch
 curl -u elastic:changeme123 http://localhost:9200/_cat/indices?v
 \`\`\`
+
+### Comment uploader mes fichiers de logs ?
+1. Ouvrir Kibana: http://localhost:5601
+2. Menu → Machine Learning → Data Visualizer → **Upload file**
+3. Glisser-déposer ton fichier \`.log\`, \`.txt\`, \`.csv\` ou \`.json\`
+4. Suivre l'assistant d'import
 
 ### Erreur de mémoire
 - Augmenter la RAM allouée à Docker
@@ -194,7 +201,7 @@ curl -u elastic:changeme123 http://localhost:9200/_cat/indices?v
 - [Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html)
 - [Kibana](https://www.elastic.co/guide/en/kibana/current/index.html)
 - [Logstash](https://www.elastic.co/guide/en/logstash/current/index.html)
-- [Beats](https://www.elastic.co/guide/en/beats/libbeat/current/index.html)
+- [Upload files to Kibana](https://www.elastic.co/guide/en/kibana/current/connect-to-elasticsearch.html#upload-data-kibana)
 
 ## 🤝 Contribution
 
@@ -207,9 +214,9 @@ MIT License - Libre d'utilisation pour l'apprentissage et la formation CDSA.
 ## ⚡ Stack testée et fonctionnelle
 
 - ✅ Elasticsearch: Operational
-- ✅ Kibana: Accessible sur port 5601
+- ✅ Kibana: Accessible sur port 5601 avec **Upload file**
 - ✅ Logstash: Pipeline actif
-- ✅ Filebeat: Collecte logs système
+
 - ✅ Metricbeat: Collecte métriques
 - ✅ Fleet Server: Gestion d'agents
 

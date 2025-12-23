@@ -176,32 +176,6 @@ services:
     restart: unless-stopped
 
   # =============================================
-  # FILEBEAT - Collecte de logs fichiers
-  # =============================================
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
-    container_name: filebeat
-    hostname: filebeat
-    user: root
-    command: filebeat -e -strict.perms=false
-    environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-    volumes:
-      - ./config/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - filebeat-data:/usr/share/filebeat/data
-    networks:
-      - elastic-network
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-      setup:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
-  # =============================================
   # METRICBEAT - Collecte de métriques système
   # =============================================
   metricbeat:
@@ -235,8 +209,6 @@ volumes:
   elasticsearch-data:
     driver: local
   logstash-data:
-    driver: local
-  filebeat-data:
     driver: local
   metricbeat-data:
     driver: local
