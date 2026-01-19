@@ -1,169 +1,77 @@
-version: "3.8"
-
 services:
   # =============================================
-  # SETUP - Configuration initiale
-  # =============================================
-  setup:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
-    container_name: elastic-setup
-    user: "0"
-    command: >
-      bash -c '
-        echo "Waiting for Elasticsearch availability...";
-        until curl -s -u "elastic:${ELASTIC_PASSWORD}" http://elasticsearch:9200 | grep -q "cluster_name"; do sleep 10; done;
-        echo "Elasticsearch is up!";
-        
-        echo "Setting kibana_system password...";
-        until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" \
-          -H "Content-Type: application/json" \
-          http://elasticsearch:9200/_security/user/kibana_system/_password \
-          -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
-        echo "Password set successfully!";
-        
-        echo "Creating logstash_internal user...";
-        curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" \
-          -H "Content-Type: application/json" \
-          http://elasticsearch:9200/_security/user/logstash_internal \
-          -d "{\"password\":\"${ELASTIC_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"Logstash Internal\"}";
-        
-        echo "Creating logstash_writer role...";
-        curl -s -X PUT -u "elastic:${ELASTIC_PASSWORD}" \
-          -H "Content-Type: application/json" \
-          http://elasticsearch:9200/_security/role/logstash_writer \
-          -d "{\"cluster\":[\"manage_index_templates\",\"monitor\",\"manage_ilm\"],\"indices\":[{\"names\":[\"logs-*\",\"logstash-*\",\"filebeat-*\",\"metricbeat-*\",\"winlogbeat-*\",\"packetbeat-*\"],\"privileges\":[\"write\",\"create\",\"create_index\",\"manage\",\"manage_ilm\"]}]}";
-        
-        echo "Setup completed!";
-      '
-    networks:
-      - elastic-network
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    environment:
-      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
-      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
-
-  # =============================================
-  # ELASTICSEARCH - Moteur de recherche et stockage
+  # ELASTICSEARCH (No Security)
   # =============================================
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
     container_name: elasticsearch
-    hostname: elasticsearch
     environment:
-      - node.name=${NODE_NAME}
-      - cluster.name=${CLUSTER_NAME}
+      - node.name=es-node-01
+      - cluster.name=elastic-cdsa-lab
       - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=${ES_JAVA_OPTS}
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.security.transport.ssl.enabled=false
-      - xpack.license.self_generated.type=${LICENSE}
-      - xpack.monitoring.collection.enabled=true
+      - xpack.security.enabled=false
     ulimits:
       memlock:
         soft: -1
         hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     ports:
-      - "${ES_PORT}:9200"
+      - "9200:9200"
     networks:
-      - elastic-network
+      - elastic-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    restart: unless-stopped
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q 'status'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # =============================================
-  # KIBANA - Interface Web
+  # KIBANA (No Security)
   # =============================================
   kibana:
     image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
     container_name: kibana
-    hostname: kibana
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
-      - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY}
-      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY}
-      - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY}
-      - XPACK_FLEET_AGENTS_ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
-      - XPACK_FLEET_AGENTS_FLEET_SERVER_HOSTS=["http://fleet-server:8220"]
     ports:
-      - "${KIBANA_PORT}:5601"
+      - "5601:5601"
     networks:
-      - elastic-network
+      - elastic-net
     depends_on:
       elasticsearch:
         condition: service_healthy
-      setup:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    restart: unless-stopped
 
   # =============================================
-  # LOGSTASH - Pipeline de traitement de données
+  # LOGSTASH (No Security)
   # =============================================
   logstash:
     image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}
     container_name: logstash
-    hostname: logstash
+    command: logstash -f /usr/share/logstash/pipeline/logstash.conf
     environment:
-      - LS_JAVA_OPTS=${LS_JAVA_OPTS}
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+      - XPACK_MONITORING_ENABLED=false
     volumes:
       - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
-      - ./config/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
       - logstash-data:/usr/share/logstash/data
     ports:
-      - "${LOGSTASH_BEATS_PORT}:5044"
-      - "${LOGSTASH_TCP_PORT}:5000/tcp"
-      - "${LOGSTASH_UDP_PORT}:5000/udp"
-      - "9600:9600"
+      - "5044:5044"
+      - "5000:5000/tcp"
     networks:
-      - elastic-network
+      - elastic-net
     depends_on:
       elasticsearch:
         condition: service_healthy
-      setup:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q 'host'"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
 
-# =============================================
-# VOLUMES PERSISTANTS
-# =============================================
 volumes:
   elasticsearch-data:
-    driver: local
   logstash-data:
-    driver: local
 
-# =============================================
-# RÉSEAU
-# =============================================
+
 networks:
-  elastic-network:
+  elastic-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
