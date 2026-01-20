@@ -49,6 +49,25 @@ except ImportError as e:
     VOLATILITY_SUPPORT = False
     print(f"⚠️  Module volatility3 non disponible: {e}")
 
+# Import Prefetch parser
+try:
+    from prefetch_parser import prefetch2json
+    PREFETCH_SUPPORT = True
+    print("✅ Module prefetch-parser chargé, support Prefetch activé")
+except ImportError as e:
+    PREFETCH_SUPPORT = False
+    print(f"⚠️  Module prefetch-parser non disponible: {e}")
+
+# Import Registry parser (regipy)
+try:
+    from regipy.registry import RegistryHive
+    from regipy.plugins.utils import run_relevant_plugins
+    REGISTRY_SUPPORT = True
+    print("✅ Module regipy chargé, support Registry activé")
+except ImportError as e:
+    REGISTRY_SUPPORT = False
+    print(f"⚠️  Module regipy non disponible: {e}")
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2 GB max
 app.config['UPLOAD_FOLDER'] = '/app/uploads'
@@ -76,6 +95,13 @@ FORENSIC_EXTENSIONS = {
     '.raw': 'Memory Dump (RAW)',
     '.vmem': 'VMware Memory',
     '.dmp': 'Windows Crash Dump',
+    '.pf': 'Windows Prefetch',
+}
+
+# Noms de fichiers Registry reconnus (sans extension)
+REGISTRY_FILENAMES = {
+    'system', 'software', 'sam', 'security', 'ntuser.dat', 'usrclass.dat',
+    'amcache.hve', 'default', 'components'
 }
 
 # Extensions à ignorer
@@ -348,6 +374,142 @@ def parse_memory_file(file_path, source_name):
     return generator(), None
 
 
+def parse_prefetch_file(file_path, source_name):
+    """
+    Parse un fichier Windows Prefetch (.pf).
+    Extrait les informations d'exécution des applications.
+    """
+    if not PREFETCH_SUPPORT:
+        return [], "Module prefetch-parser non disponible"
+    
+    def generator():
+        try:
+            print(f"📋 Parsing Prefetch: {source_name}")
+            # prefetch2json retourne un dictionnaire complet
+            data = prefetch2json(file_path)
+            
+            # Événement principal
+            event = {
+                '@timestamp': datetime.utcnow().isoformat(),
+                '_source_file': source_name,
+                'event.type': 'prefetch.execution',
+            }
+            
+            # Mapper dynamiquement les champs
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    # Nettoyage des clés et valeurs
+                    clean_key = key.lower().replace(' ', '_')
+                    
+                    # Traitement spécial pour les listes (fichiers, etc.)
+                    if isinstance(value, list) and len(value) > 100:
+                         # Échantillon pour ne pas saturer
+                         event[f'prefetch.{clean_key}_count'] = len(value)
+                         event[f'prefetch.{clean_key}_sample'] = value[:50]
+                    else:
+                        event[f'prefetch.{clean_key}'] = value
+                        
+            yield event
+            exe_name = data.get('Executable Name', 'Unknown')
+            run_count = data.get('Run Count', 0)
+            print(f"✅ Prefetch parsé: {exe_name} (run count: {run_count})")
+            
+        except Exception as e:
+            print(f"❌ Erreur parsing Prefetch {source_name}: {e}")
+            yield {
+                '@timestamp': datetime.utcnow().isoformat(),
+                '_source_file': source_name,
+                'event.type': 'prefetch.error',
+                'error.message': str(e)
+            }
+    
+    return generator(), None
+
+
+def parse_registry_file(file_path, source_name):
+    """
+    Parse un fichier Registry Windows (SYSTEM, SOFTWARE, NTUSER.DAT, etc.)
+    utilisant regipy et ses plugins forensiques.
+    """
+    if not REGISTRY_SUPPORT:
+        return [], "Module regipy non disponible"
+    
+    def generator():
+        try:
+            print(f"🔑 Parsing Registry: {source_name}")
+            
+            # Ouvrir le hive
+            reg = RegistryHive(file_path)
+            
+            # Informations de base sur le hive
+            yield {
+                '@timestamp': datetime.utcnow().isoformat(),
+                '_source_file': source_name,
+                'event.type': 'registry.hive_info',
+                'registry.hive_type': reg.hive_type if hasattr(reg, 'hive_type') else 'unknown',
+                'registry.root_key': str(reg.root) if hasattr(reg, 'root') else None,
+            }
+            
+            # Exécuter les plugins forensiques pertinents
+            try:
+                plugins_output = run_relevant_plugins(reg, as_json=True)
+                
+                for plugin_name, plugin_data in plugins_output.items():
+                    if isinstance(plugin_data, list):
+                        for entry in plugin_data:
+                            event = {
+                                '@timestamp': datetime.utcnow().isoformat(),
+                                '_source_file': source_name,
+                                'event.type': f'registry.{plugin_name.lower()}',
+                                'registry.plugin': plugin_name,
+                            }
+                            # Ajouter les données du plugin
+                            if isinstance(entry, dict):
+                                for k, v in entry.items():
+                                    # Nettoyer les valeurs
+                                    if v is not None:
+                                        event[f'registry.{k}'] = str(v) if not isinstance(v, (str, int, float, bool)) else v
+                            else:
+                                event['registry.value'] = str(entry)
+                            yield event
+                    elif isinstance(plugin_data, dict):
+                        event = {
+                            '@timestamp': datetime.utcnow().isoformat(),
+                            '_source_file': source_name,
+                            'event.type': f'registry.{plugin_name.lower()}',
+                            'registry.plugin': plugin_name,
+                        }
+                        for k, v in plugin_data.items():
+                            if v is not None:
+                                event[f'registry.{k}'] = str(v) if not isinstance(v, (str, int, float, bool)) else v
+                        yield event
+                        
+                print(f"✅ Registry parsé avec {len(plugins_output)} plugins")
+                
+            except Exception as plugin_error:
+                print(f"⚠️ Erreur plugins registry: {plugin_error}")
+                # Fallback: parcourir les clés manuellement
+                yield {
+                    '@timestamp': datetime.utcnow().isoformat(),
+                    '_source_file': source_name,
+                    'event.type': 'registry.plugin_error',
+                    'error.message': str(plugin_error)
+                }
+            
+        except Exception as e:
+            print(f"❌ Erreur parsing Registry {source_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            yield {
+                '@timestamp': datetime.utcnow().isoformat(),
+                '_source_file': source_name,
+                'event.type': 'registry.error',
+                'error.message': str(e)
+            }
+    
+    return generator(), None
+
+
 class LogstashSender:
     """Gère l'envoi asynchrone vers Logstash via une Queue."""
     def __init__(self, host, port, index_name):
@@ -471,6 +633,10 @@ def process_file_worker(file_info, sender, index_name):
             generator, gen_error = parse_log_file(file_path, relative_path)
         elif ext in ['.mem', '.raw', '.vmem', '.dmp']:
             generator, gen_error = parse_memory_file(file_path, relative_path)
+        elif ext == '.pf':
+            generator, gen_error = parse_prefetch_file(file_path, relative_path)
+        elif ext == '.reg':
+            generator, gen_error = parse_registry_file(file_path, relative_path)
         else:
             return 0, "Type non supporté"
             
@@ -495,19 +661,31 @@ def scan_directory(directory):
     for root, dirs, files in os.walk(directory):
         for filename in files:
             ext = Path(filename).suffix.lower()
+            filename_lower = filename.lower()
             
             if ext in IGNORED_EXTENSIONS:
                 continue
             
-            if ext in FORENSIC_EXTENSIONS:
+            # Vérifier si c'est un fichier Registry par son nom
+            is_registry = filename_lower in REGISTRY_FILENAMES
+            
+            if ext in FORENSIC_EXTENSIONS or is_registry:
                 full_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(full_path, directory)
+                
+                if is_registry:
+                    file_type = 'Windows Registry'
+                    file_ext = '.reg'  # Extension virtuelle pour le traitement
+                else:
+                    file_type = FORENSIC_EXTENSIONS.get(ext, 'Unknown')
+                    file_ext = ext
+                
                 forensic_files.append({
                     'path': full_path,
                     'name': filename,
                     'relative_path': rel_path,
-                    'type': FORENSIC_EXTENSIONS.get(ext, 'Unknown'),
-                    'extension': ext,
+                    'type': file_type,
+                    'extension': file_ext,
                     'size': os.path.getsize(full_path)
                 })
     
@@ -559,8 +737,12 @@ def create_kibana_data_view(index_name):
 def process_upload_background(task_id, file_path, password, extract_dir, index_name):
     """Traitement background optimisé (Multi-thread + Queue)."""
     sender = None
+    print(f"🚀 Démarrage traitement background: task_id={task_id}")
+    print(f"   file_path={file_path}")
+    print(f"   extract_dir={extract_dir}")
     try:
         upload_tasks[task_id]['status'] = 'extracting'
+        print(f"   Statut mis à extracting")
         
         # 1. Extraction (inchangé)
         scan_dir = extract_dir

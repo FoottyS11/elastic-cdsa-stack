@@ -5,6 +5,8 @@ WORKDIR /app
 # Installer les dépendances système (incluant celles pour Volatility3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    build-essential \
+    python3-dev \
     libyara-dev \
     libmagic1 \
     curl \

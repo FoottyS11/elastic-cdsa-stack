@@ -5,3 +5,5 @@ Werkzeug>=2.3.0
 volatility3>=2.5.0
 pycryptodome>=3.18.0
 yara-python>=4.3.0
+regipy>=4.0.0
+prefetch-parser>=0.1.0
