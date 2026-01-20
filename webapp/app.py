@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
+import queue
+import concurrent.futures
 
 # Imports pour parsing des fichiers forensiques
 try:
@@ -95,173 +97,246 @@ def xml_to_dict(element):
 
 
 def parse_evtx_file(file_path, source_name):
-    """Parse un fichier EVTX et retourne une liste d'événements JSON."""
-    events = []
-    
+    """Parse un fichier EVTX et yield des événements JSON."""
     if not EVTX_SUPPORT:
-        return events, "Module python-evtx non disponible"
+        return [], "Module python-evtx non disponible"
     
-    try:
-        with Evtx(file_path) as evtx:
-            for record in evtx.records():
-                try:
-                    xml_str = record.xml()
-                    root = ET.fromstring(xml_str)
-                    
-                    event_dict = xml_to_dict(root)
-                    event_dict['_source_file'] = source_name
-                    event_dict['_parsed_at'] = datetime.utcnow().isoformat()
-                    
-                    events.append(event_dict)
-                except Exception as e:
-                    print(f"⚠️ Erreur parsing record: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
-                    
-    except Exception as e:
-        return events, str(e)
-    
-    return events, None
+    def generator():
+        try:
+            with Evtx(file_path) as evtx:
+                for record in evtx.records():
+                    try:
+                        xml_str = record.xml()
+                        root = ET.fromstring(xml_str)
+                        
+                        event_dict = xml_to_dict(root)
+                        event_dict['_source_file'] = source_name
+                        event_dict['_parsed_at'] = datetime.utcnow().isoformat()
+                        
+                        yield event_dict
+                    except Exception as e:
+                        print(f"⚠️ Erreur parsing record dans {source_name}: {e}")
+                        continue
+        except Exception as e:
+            print(f"❌ Erreur critique lecture EVTX {source_name}: {e}")
+            raise e
+
+    return generator(), None
 
 
 def parse_json_file(file_path, source_name):
-    """Parse un fichier JSON (une ligne = un événement ou JSON array)."""
-    events = []
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read().strip()
-            
-            # Essayer de parser comme JSON array
-            if content.startswith('['):
-                try:
-                    data = json.loads(content)
+    """Parse un fichier JSON (une ligne = un événement ou JSON array) en streaming."""
+    def generator():
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                # Lecture intelligente: on regarde le premier caractère
+                first_char = f.read(1)
+                f.seek(0)
+                
+                if first_char == '[':
+                    # C'est un array JSON, on est obligé de charger (ou utiliser un parser stream, mais standard json load est simple)
+                    # Pour éviter de tout charger si c'est énorme, on pourrait utiliser 'ijson' mais pas dispo ici.
+                    # On fallback sur load standard pour l'instant pour les arrays.
+                    data = json.load(f)
                     for item in data:
                         if isinstance(item, dict):
                             item['_source_file'] = source_name
-                            events.append(item)
-                    return events, None
-                except json.JSONDecodeError:
-                    pass
-            
-            # Sinon, parser ligne par ligne (JSONL)
-            for line in content.split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    if isinstance(event, dict):
-                        event['_source_file'] = source_name
-                        events.append(event)
-                except json.JSONDecodeError:
-                    continue
-                    
-    except Exception as e:
-        return events, str(e)
-    
-    return events, None
+                            yield item
+                else:
+                    # JSONL (Line Delimited) - Vrai streaming
+                    for line in f:
+                        line = line.strip()
+                        if not line: continue
+                        try:
+                            event = json.loads(line)
+                            if isinstance(event, dict):
+                                event['_source_file'] = source_name
+                                yield event
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            print(f"❌ Erreur lecture JSON {source_name}: {e}")
+            raise e
+
+    return generator(), None
 
 
 def parse_csv_file(file_path, source_name):
-    """Parse un fichier CSV et retourne une liste d'événements JSON."""
-    events = []
-    
+    """Parse un fichier CSV et yield des événements JSON."""
     if not CSV_SUPPORT:
-        return events, "Module pandas non disponible"
+        return [], "Module pandas non disponible"
     
-    try:
-        df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
-        for _, row in df.iterrows():
-            event = row.to_dict()
-            event['_source_file'] = source_name
-            events.append(event)
-    except Exception as e:
-        return events, str(e)
-    
-    return events, None
+    def generator():
+        try:
+            # Chunksize permet de lire le CSV par morceaux sans charger tout en RAM
+            for chunk in pd.read_csv(file_path, encoding='utf-8', errors='ignore', chunksize=1000):
+                for _, row in chunk.iterrows():
+                    event = row.to_dict()
+                    event['_source_file'] = source_name
+                    yield event
+        except Exception as e:
+            print(f"❌ Erreur lecture CSV {source_name}: {e}")
+            raise e
+            
+    return generator(), None
 
 
 def parse_log_file(file_path, source_name):
-    """Parse un fichier log texte ligne par ligne."""
-    events = []
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for i, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                events.append({
-                    'message': line,
-                    'line_number': i,
-                    '_source_file': source_name
-                })
-    except Exception as e:
-        return events, str(e)
-    
-    return events, None
+    """Parse un fichier log texte ligne par ligne en streaming."""
+    def generator():
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for i, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line: continue
+                    yield {
+                        'message': line,
+                        'line_number': i,
+                        '_source_file': source_name
+                    }
+        except Exception as e:
+            print(f"❌ Erreur lecture Log {source_name}: {e}")
+            raise e
+
+    return generator(), None
 
 
-def send_to_logstash(events, index_name):
-    """Envoie les événements vers Logstash via TCP."""
-    if not events:
-        return 0, "Aucun événement à envoyer"
-    
-    sent_count = 0
-    
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(30)
-        sock.connect((LOGSTASH_HOST, LOGSTASH_PORT))
+class LogstashSender:
+    """Gère l'envoi asynchrone vers Logstash via une Queue."""
+    def __init__(self, host, port, index_name):
+        self.host = host
+        self.port = port
+        self.index_name = index_name
+        self.queue = queue.Queue(maxsize=10000) # Backpressure pour ne pas saturer la RAM
+        self.running = True
+        self.total_sent = 0
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+        self.sock = None
         
-        for event in events:
-            # Ajouter l'index name pour le routage dans Logstash
-            event['_index_hint'] = index_name
+    def start(self):
+        self.thread.start()
+        
+    def stop(self):
+        self.running = False
+        self.queue.put(None) # Sentinel
+        self.thread.join()
+        if self.sock:
+            self.sock.close()
             
+    def enqueue(self, event):
+        self.queue.put(event)
+        
+    def _connect(self):
+        try:
+            if self.sock: self.sock.close()
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(10)
+            self.sock.connect((self.host, self.port))
+            return True
+        except Exception as e:
+            print(f"❌ Erreur connexion Logstash: {e}")
+            return False
+
+    def _run_loop(self):
+        batch = []
+        last_send = time.time()
+        
+        while self.running or not self.queue.empty():
             try:
-                data = json.dumps(event, default=str) + '\n'
-                sock.sendall(data.encode('utf-8'))
-                sent_count += 1
+                # Récupérer item avec timeout pour flusher périodiquement
+                try:
+                    item = self.queue.get(timeout=1.0)
+                except queue.Empty:
+                    item = None
+                
+                if item is None:
+                    # Sentinel ou timeout -> flush si besoin
+                    if batch and (time.time() - last_send > 1.0 or not self.running):
+                        self._send_batch(batch)
+                        batch = []
+                        last_send = time.time()
+                    continue
+                    
+                # Minification
+                data = json.dumps(item, default=str, separators=(',', ':'))
+                # Ajout index hint
+                # Note: On pourrait l'injecter ici ou avant.
+                # L'item est déjà un dict
+                if '_index_hint' not in item:
+                     item['_index_hint'] = self.index_name  # Fallback si pas mis avant
+                     
+                batch.append(data)
+                
+                if len(batch) >= 500:
+                    self._send_batch(batch)
+                    batch = []
+                    last_send = time.time()
+                    
+            except Exception as e:
+                print(f"⚠️ Erreur thread sender: {e}")
+                
+    def _send_batch(self, batch):
+        if not batch: return
+        
+        payload = '\n'.join(batch) + '\n'
+        data = payload.encode('utf-8')
+        
+        # Tentative d'envoi avec reconnexion simple
+        for retry in range(3):
+            try:
+                if not self.sock:
+                    if not self._connect():
+                        time.sleep(1)
+                        continue
+                
+                self.sock.sendall(data)
+                with self.lock:
+                    self.total_sent += len(batch)
+                return
             except Exception:
-                continue
+                self.sock = None # Force reconnexion
+                time.sleep(1)
         
-        sock.close()
+        print(f"❌ Echec envoi de {len(batch)} logs après retries")
+
+
+def process_file_worker(file_info, sender, index_name):
+    """Worker pour traiter un fichier et mettre les résultats dans la queue."""
+    file_path = file_info['path']
+    relative_path = file_info['relative_path']
+    ext = file_info['extension']
+    
+    events_count = 0
+    error = None
+    
+    try:
+        generator = None
+        gen_error = None
         
+        if ext == '.evtx':
+            generator, gen_error = parse_evtx_file(file_path, relative_path)
+        elif ext == '.json':
+            generator, gen_error = parse_json_file(file_path, relative_path)
+        elif ext == '.csv':
+            generator, gen_error = parse_csv_file(file_path, relative_path)
+        elif ext in ['.log', '.txt']:
+            generator, gen_error = parse_log_file(file_path, relative_path)
+        else:
+            return 0, "Type non supporté"
+            
+        if gen_error:
+            return 0, gen_error
+            
+        for event in generator:
+            event['_index_hint'] = index_name
+            sender.enqueue(event)
+            events_count += 1
+            
     except Exception as e:
-        return sent_count, str(e)
-    
-    return sent_count, None
-
-
-def process_file(file_path, source_name, index_name):
-    """Traite un fichier forensique selon son type."""
-    ext = Path(file_path).suffix.lower()
-    
-    if ext == '.evtx':
-        events, error = parse_evtx_file(file_path, source_name)
-    elif ext == '.json':
-        events, error = parse_json_file(file_path, source_name)
-    elif ext == '.csv':
-        events, error = parse_csv_file(file_path, source_name)
-    elif ext in ['.log', '.txt']:
-        events, error = parse_log_file(file_path, source_name)
-    else:
-        return 0, f"Type de fichier non supporté: {ext}"
-    
-    if error:
-        return 0, error
-    
-    if not events:
-        return 0, "Aucun événement extrait"
-    
-    sent, send_error = send_to_logstash(events, index_name)
-    
-    if send_error:
-        return sent, send_error
-    
-    return sent, None
+        error = str(e)
+        
+    return events_count, error
 
 
 def scan_directory(directory):
@@ -333,93 +408,89 @@ def create_kibana_data_view(index_name):
 
 
 def process_upload_background(task_id, file_path, password, extract_dir, index_name):
-    """Fonction de traitement en arrière-plan."""
+    """Traitement background optimisé (Multi-thread + Queue)."""
+    sender = None
     try:
         upload_tasks[task_id]['status'] = 'extracting'
         
-        # 1. Extraction du ZIP
+        # 1. Extraction (inchangé)
         scan_dir = extract_dir
-        
         if file_path.endswith('.zip'):
              with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                # Vérifier si mot de passe requis
                 try:
                     zip_ref.testzip()
                 except RuntimeError as e:
                     if 'encrypted' in str(e) and not password:
-                        upload_tasks[task_id] = {
-                            'status': 'error', 
-                            'error': 'Ce ZIP est protégé par mot de passe.', 
-                            'password_required': True
-                        }
+                        upload_tasks[task_id].update({'status': 'error', 'error': 'Zip chiffré', 'password_required': True})
                         return
-                        
-                # Extraction
                 try:
                     zip_ref.extractall(extract_dir, pwd=password.encode('utf-8') if password else None)
                 except RuntimeError as e:
                     if 'Bad password' in str(e):
-                        upload_tasks[task_id] = {
-                            'status': 'error', 
-                            'error': 'Mot de passe incorrect.', 
-                            'password_required': True
-                        }
+                        upload_tasks[task_id].update({'status': 'error', 'error': 'Mot de passe incorrect', 'password_required': True})
                         return
                     raise e
-                
              scan_dir = extract_dir
-        else:
-             # Si ce n'est pas un ZIP (mais accepté par upload_file), le dossier est déjà prêt
-             pass
 
-        # 2. Scan des fichiers
+        # 2. Scan
         upload_tasks[task_id]['status'] = 'scanning'
         forensic_files = scan_directory(scan_dir)
-
         upload_tasks[task_id]['total'] = len(forensic_files)
+        
+        # 3. Traitement Parallèle
         upload_tasks[task_id]['status'] = 'processing'
         
-        # 3. Traitement des fichiers
+        # Initialiser Sender
+        sender = LogstashSender(LOGSTASH_HOST, LOGSTASH_PORT, index_name)
+        sender.start()
+        
         results = []
-        total_events = 0
+        files_processed = 0
         
-        for i, ffile in enumerate(forensic_files):
-            # Mise à jour de la progression
-            upload_tasks[task_id]['current'] = i + 1
-            upload_tasks[task_id]['current_file'] = ffile['relative_path']
-            print(f"📄 [{i+1}/{len(forensic_files)}] Traitement: {ffile['relative_path']}")
-            
-            sent, error = process_file(
-                ffile['path'], 
-                ffile['relative_path'],
-                index_name
-            )
-            
-            report = {
-                'file': ffile['relative_path'],
-                'type': ffile['type'],
-                'size': ffile['size'],
-                'events_sent': sent,
-                'error': error,
-                'status': 'success' if error is None else 'error'
+        # ThreadPool pour le parsing
+        # On limite le nombre de workers pour ne pas tuer le CPU/Disque
+        MAX_WORKERS = 4 
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_file = {
+                executor.submit(process_file_worker, ffile, sender, index_name): ffile 
+                for ffile in forensic_files
             }
-            results.append(report)
             
-            # Mise à jour partielle du résultat si on veut permettre un suivi temps réel des fichiers
-            upload_tasks[task_id]['last_result'] = report
-            
-            total_events += sent
+            for future in concurrent.futures.as_completed(future_to_file):
+                ffile = future_to_file[future]
+                try:
+                    count, error = future.result()
+                    
+                    files_processed += 1
+                    upload_tasks[task_id]['current'] = files_processed
+                    upload_tasks[task_id]['current_file'] = ffile['relative_path']
+                    # On évite le print excessif en parallèle, ou alors juste un log simple
+                    # print(f"✅ {ffile['relative_path']} : {count} events")
+                    
+                    results.append({
+                        'file': ffile['relative_path'],
+                        'type': ffile['type'],
+                        'size': ffile['size'],
+                        'events_sent': count, # Note: c'est le count parsé, pas forcément encore envoyé (async)
+                        'error': error,
+                        'status': 'success' if not error else 'error'
+                    })
+                    
+                except Exception as exc:
+                    print(f"❌ Exception worker sur {ffile['relative_path']}: {exc}")
         
-        # 4. Création Data View
+        # Attendre la fin de l'envoi
+        sender.stop()
+        total_events = sender.total_sent
+        
+        # 4. Data View
         data_view_created = create_kibana_data_view(index_name)
-        
-        # Compter les fichiers réussis
         successful_files = sum(1 for r in results if r['status'] == 'success')
         
-        # Résultat final
         upload_tasks[task_id]['result'] = {
             'success': True,
-            'message': f'Import terminé! {total_events} événements importés depuis {successful_files} fichiers.',
+            'message': f'Optimized Import terminé! {total_events} événements.',
             'index_name': index_name,
             'files_found': len(forensic_files),
             'files_processed': successful_files,
@@ -430,22 +501,19 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
             'kibana_url': f'http://localhost:5601/app/discover#/?_g=()&_a=(dataSource:(dataViewId:\'{index_name}\',type:dataView))'
         }
         upload_tasks[task_id]['status'] = 'completed'
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
         upload_tasks[task_id] = {'status': 'error', 'error': str(e)}
+        if sender: sender.stop()
              
     finally:
-        # Nettoyage différé
         def clean_temp():
-            time.sleep(300) # Garder 5 min pour être sûr
+            time.sleep(300)
             try:
                 shutil.rmtree(extract_dir, ignore_errors=True)
-            except:
-                pass
-            # Ne pas supprimer tout de suite de upload_tasks pour que le client puisse lire le résultat
-            
+            except: pass
         threading.Thread(target=clean_temp, daemon=True).start()
 
 
