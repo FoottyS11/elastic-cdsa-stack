@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DASHBOARDS_DIR="$SCRIPT_DIR/../dashboards"
+
 echo "🚀 Démarrage de la Stack CDSA + Forensic Uploader..."
 echo "========================================================"
 
@@ -12,15 +15,39 @@ docker-compose up -d --build
 echo ""
 echo "⏳ Attente de Kibana..."
 
+KIBANA_READY=false
 for i in {1..60}; do
     if curl -s http://localhost:5601/api/status 2>/dev/null | grep -q 'available'; then
         echo ""
         echo "✅ Kibana est prêt !"
+        KIBANA_READY=true
         break
     fi
     printf "\r   ⏱️  %d/60 secondes..." $i
     sleep 1
 done
+
+# Import des dashboards SIEM si Kibana est prêt
+if [ "$KIBANA_READY" = true ] && [ -d "$DASHBOARDS_DIR" ]; then
+    echo ""
+    echo "📊 Import des dashboards SIEM..."
+    
+    for file in "$DASHBOARDS_DIR"/*.ndjson; do
+        if [ -f "$file" ]; then
+            basename=$(basename "$file" .ndjson)
+            response=$(curl -s -X POST "http://localhost:5601/api/saved_objects/_import?overwrite=true" \
+                -H "kbn-xsrf: true" \
+                --form file=@"$file" 2>&1)
+            
+            if echo "$response" | grep -q '"success":true\|"successCount"'; then
+                echo "   ✅ $basename"
+            else
+                echo "   ⚠️ $basename (erreur)"
+            fi
+        fi
+    done
+    echo "✅ Dashboards SIEM importés !"
+fi
 
 echo ""
 echo "⏳ Attente du Forensic Uploader..."
@@ -42,8 +69,14 @@ echo "   - 📤 Forensic Uploader : http://localhost:8080"
 echo "   - 📊 Kibana            : http://localhost:5601"
 echo "   - 🔍 Elasticsearch     : http://localhost:9200"
 echo ""
+echo "📈 Dashboards SIEM disponibles :"
+echo "   - 🔐 Windows Security"
+echo "   - 🔄 Lateral Movement"
+echo "   - 🔒 Persistence Mechanisms"
+echo "   - 💻 PowerShell Analysis"
+echo ""
 echo "💡 Utilisation :"
 echo "   1. Ouvrir http://localhost:8080"
-echo "   2. Glisser-déposer un ZIP de Sherlock"
+echo "   2. Glisser-déposer un ZIP de Sherlock ou un .mem"
 echo "   3. Consulter les logs dans Kibana"
 echo "========================================================"

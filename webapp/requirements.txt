@@ -2,3 +2,6 @@ Flask>=2.3.0
 python-evtx>=0.7.4
 pandas>=2.0.0
 Werkzeug>=2.3.0
+volatility3>=2.5.0
+pycryptodome>=3.18.0
+yara-python>=4.3.0

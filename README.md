@@ -33,9 +33,28 @@ Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps
   - ✅ **EVTX** (Windows Event Logs) : Conversion XML automatique.
   - ✅ **ZIP** : Extraction automatique (support des archives chiffrées).
   - ✅ **JSON / CSV / LOG** : Parsing intelligent.
+  - ✅ **MEM / RAW / VMEM / DMP** : Analyse mémoire avec Volatility3 (NEW!)
 - **Gestion des Mots de Passe** : Détection des ZIP chiffrés et presets intégrés (`hacktheblue`, `hackthebox`, `infected`).
 - **Feedback Temps Réel** : Barre de progression asynchrone détaillée ("Traitement fichier 5/12...").
 - **Automatisation Kibana** : Création automatique du **Data View** et lien direct vers les logs.
+
+### 🧠 Memory Forensics (Volatility3)
+- **Analyse automatique** des dumps mémoire Windows (.mem, .raw, .vmem, .dmp)
+- **Plugins intégrés** :
+  - `pslist` : Liste des processus en cours
+  - `netscan` : Connexions réseau actives
+  - `cmdline` : Arguments de ligne de commande des processus
+- **Indexation Elasticsearch** : Tous les artefacts mémoire indexés et cherchables dans Kibana
+
+### 📊 SIEM Dashboards Pré-Configurés (NEW!)
+4 dashboards prêts à l'emploi pour la certification CDSA :
+
+| Dashboard | Description |
+|-----------|-------------|
+| 🔐 **Windows Security** | Logons (4624/4625), Process Creation (4688), Failed Auth |
+| 🔄 **Lateral Movement** | PsExec, RDP (Type 10), WMI, SMB, Named Pipes |
+| 🔒 **Persistence** | Scheduled Tasks, Service Installs, Registry Run Keys |
+| 💻 **PowerShell Analysis** | ScriptBlock (4104), Encoded Commands, Suspicious Keywords |
 
 ### 🛡️ Elastic Stack (CDSA Ready)
 - **Elasticsearch & Kibana 8.11** : Dernière version stable.
@@ -122,9 +141,9 @@ process.command_line: *base64*
 
 ## 🛠️ Commandes Utiles
 
-Les scripts dans le dossier `./scripts/` simplifient la vie :
+Seulement 3 scripts dans le dossier `./scripts/` :
 
-- **Démarrer** : `./scripts/start.sh`
+- **Démarrer** : `./scripts/start.sh` (📊 importe automatiquement les dashboards SIEM)
 - **Arrêter** (en gardant les données) : `./scripts/stop.sh`
 - **Réinitialiser** (TOUT effacer) : `./scripts/reset.sh` (⚠️ Destructif !)
 

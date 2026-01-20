@@ -37,6 +37,18 @@ except ImportError:
     CSV_SUPPORT = False
     print("⚠️  Module pandas non disponible, support CSV désactivé")
 
+# Import Volatility3 pour analyse mémoire
+try:
+    from volatility3.framework import contexts, constants, automagic, plugins
+    from volatility3.framework.configuration import requirements
+    from volatility3 import framework
+    from volatility3.plugins.windows import pslist, netscan, cmdline, pstree
+    VOLATILITY_SUPPORT = True
+    print("✅ Module volatility3 chargé, support Memory Dump activé")
+except ImportError as e:
+    VOLATILITY_SUPPORT = False
+    print(f"⚠️  Module volatility3 non disponible: {e}")
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max
 app.config['UPLOAD_FOLDER'] = '/app/uploads'
@@ -52,6 +64,10 @@ FORENSIC_EXTENSIONS = {
     '.csv': 'CSV Data',
     '.log': 'Text Log',
     '.txt': 'Text File',
+    '.mem': 'Memory Dump',
+    '.raw': 'Memory Dump (RAW)',
+    '.vmem': 'VMware Memory',
+    '.dmp': 'Windows Crash Dump',
 }
 
 # Extensions à ignorer
@@ -201,6 +217,129 @@ def parse_log_file(file_path, source_name):
     return generator(), None
 
 
+def parse_memory_file(file_path, source_name):
+    """
+    Analyse un dump mémoire avec Volatility3.
+    Exécute plusieurs plugins et yield les résultats comme events.
+    """
+    if not VOLATILITY_SUPPORT:
+        return [], "Module volatility3 non disponible"
+    
+    def generator():
+        try:
+            print(f"🧠 Démarrage analyse mémoire: {source_name}")
+            
+            # Configuration Volatility3
+            framework.require_interface_version(2, 0, 0)
+            ctx = contexts.Context()
+            
+            # Configurer le fichier source
+            single_location = "file://" + os.path.abspath(file_path)
+            ctx.config['automagic.LayerStacker.single_location'] = single_location
+            
+            # Automagics pour détecter automatiquement l'OS
+            available_automagics = automagic.available(ctx)
+            automagics_list = automagic.choose_automagic(available_automagics, pslist.PsList)
+            
+            # Plugins à exécuter avec leurs configurations
+            plugins_config = [
+                {
+                    'name': 'pslist',
+                    'plugin': pslist.PsList,
+                    'event_type': 'memory.process',
+                    'fields': ['PID', 'PPID', 'ImageFileName', 'CreateTime', 'ExitTime', 
+                              'Threads', 'Handles', 'SessionId', 'Wow64', 'Offset']
+                },
+                {
+                    'name': 'netscan',
+                    'plugin': netscan.NetScan,
+                    'event_type': 'memory.network',
+                    'fields': ['Offset', 'Proto', 'LocalAddr', 'LocalPort', 
+                              'ForeignAddr', 'ForeignPort', 'State', 'PID', 'Owner', 'Created']
+                },
+                {
+                    'name': 'cmdline',
+                    'plugin': cmdline.CmdLine,
+                    'event_type': 'memory.commandline',
+                    'fields': ['PID', 'Process', 'Args']
+                }
+            ]
+            
+            for plugin_cfg in plugins_config:
+                plugin_name = plugin_cfg['name']
+                plugin_class = plugin_cfg['plugin']
+                event_type = plugin_cfg['event_type']
+                expected_fields = plugin_cfg['fields']
+                
+                try:
+                    print(f"  → Exécution plugin: {plugin_name}")
+                    
+                    # Construire le plugin
+                    constructed = plugins.construct_plugin(
+                        ctx, 
+                        automagics_list, 
+                        plugin_class, 
+                        "plugins", 
+                        None, 
+                        None
+                    )
+                    
+                    if constructed is None:
+                        print(f"  ⚠️ Plugin {plugin_name} non construit (OS non compatible?)")
+                        continue
+                    
+                    # Exécuter et récupérer les résultats
+                    treegrid = constructed.run()
+                    
+                    for row in treegrid.populate():
+                        # row est un tuple (depth, row_values)
+                        if len(row) < 2:
+                            continue
+                            
+                        row_values = row[1]
+                        event = {
+                            '@timestamp': datetime.utcnow().isoformat(),
+                            '_source_file': source_name,
+                            'volatility.plugin': plugin_name,
+                            'event.type': event_type
+                        }
+                        
+                        # Mapper les colonnes
+                        for i, field_name in enumerate(expected_fields):
+                            if i < len(row_values):
+                                value = row_values[i]
+                                # Convertir en type sérialisable
+                                if hasattr(value, 'isoformat'):
+                                    value = value.isoformat()
+                                elif hasattr(value, '__str__'):
+                                    value = str(value)
+                                event[f'volatility.{field_name.lower()}'] = value
+                        
+                        yield event
+                        
+                except Exception as plugin_error:
+                    print(f"  ⚠️ Erreur plugin {plugin_name}: {plugin_error}")
+                    # Yield un événement d'erreur pour traçabilité
+                    yield {
+                        '@timestamp': datetime.utcnow().isoformat(),
+                        '_source_file': source_name,
+                        'volatility.plugin': plugin_name,
+                        'event.type': 'memory.error',
+                        'error.message': str(plugin_error)
+                    }
+                    continue
+                    
+            print(f"✅ Analyse mémoire terminée: {source_name}")
+            
+        except Exception as e:
+            print(f"❌ Erreur critique analyse mémoire {source_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise e
+    
+    return generator(), None
+
+
 class LogstashSender:
     """Gère l'envoi asynchrone vers Logstash via une Queue."""
     def __init__(self, host, port, index_name):
@@ -322,6 +461,8 @@ def process_file_worker(file_info, sender, index_name):
             generator, gen_error = parse_csv_file(file_path, relative_path)
         elif ext in ['.log', '.txt']:
             generator, gen_error = parse_log_file(file_path, relative_path)
+        elif ext in ['.mem', '.raw', '.vmem', '.dmp']:
+            generator, gen_error = parse_memory_file(file_path, relative_path)
         else:
             return 0, "Type non supporté"
             
