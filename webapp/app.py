@@ -757,19 +757,34 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
                     if 'encrypted' in str(e) and not password:
                         upload_tasks[task_id].update({'status': 'error', 'error': 'Zip chiffré', 'password_required': True})
                         return
-                try:
-                    # Extraction
-                    print(f"   Extraction en cours vers {extract_dir}...", flush=True)
-                    zip_ref.extractall(extract_dir, pwd=password.encode('utf-8') if password else None)
-                    print(f"   Extraction terminée", flush=True)
-                except RuntimeError as e:
-                    error_msg = str(e)
-                    if 'Bad password' in error_msg or 'password required' in error_msg:
-                        print(f"⚠️ Erreur mot de passe: {error_msg}", flush=True)
-                        upload_tasks[task_id].update({'status': 'error', 'error': 'Mot de passe requis ou incorrect', 'password_required': True})
-                        return
-                    print(f"❌ Erreur extraction: {error_msg}", flush=True)
-                    raise e
+                # Extraction itérative pour mieux gérer les erreurs et le reporting
+                files = zip_ref.infolist()
+                total_files = len(files)
+                print(f"   Extraction de {total_files} fichiers vers {extract_dir}...", flush=True)
+                
+                for i, member in enumerate(files):
+                    try:
+                        # Log périodique
+                        if i % 100 == 0:
+                            print(f"   Extraction: {i}/{total_files} ({member.filename})", flush=True)
+                        
+                        zip_ref.extract(member, extract_dir, pwd=password.encode('utf-8') if password else None)
+                    except RuntimeError as e:
+                        error_msg = str(e)
+                        if 'Bad password' in error_msg or 'password required' in error_msg:
+                            print(f"⚠️ Erreur mot de passe sur {member.filename}: {error_msg}", flush=True)
+                            # On arrête tout si pas de mot de passe ou mot de passe incorrect global
+                            upload_tasks[task_id].update({'status': 'error', 'error': 'Mot de passe requis ou incorrect', 'password_required': True})
+                            return
+                        else:
+                            print(f"❌ Erreur extraction fichier {member.filename}: {error_msg}", flush=True)
+                            continue
+                    except Exception as e:
+                        print(f"❌ Erreur inconnue fichier {member.filename}: {e}", flush=True)
+                        continue
+                        
+                print(f"   Extraction terminée", flush=True)
+
              scan_dir = extract_dir
 
         # 2. Scan
