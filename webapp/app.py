@@ -737,35 +737,46 @@ def create_kibana_data_view(index_name):
 def process_upload_background(task_id, file_path, password, extract_dir, index_name):
     """Traitement background optimisé (Multi-thread + Queue)."""
     sender = None
-    print(f"🚀 Démarrage traitement background: task_id={task_id}")
-    print(f"   file_path={file_path}")
-    print(f"   extract_dir={extract_dir}")
+    print(f"🚀 Démarrage traitement background: task_id={task_id}", flush=True)
+    print(f"   file_path={file_path}", flush=True)
+    print(f"   extract_dir={extract_dir}", flush=True)
     try:
         upload_tasks[task_id]['status'] = 'extracting'
-        print(f"   Statut mis à extracting")
+        print(f"   Statut mis à extracting", flush=True)
         
         # 1. Extraction (inchangé)
         scan_dir = extract_dir
         if file_path.endswith('.zip'):
+             print(f"   Début extraction ZIP...", flush=True)
              with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 try:
-                    zip_ref.testzip()
+                    # On skip testzip car ça peut être long
+                    # zip_ref.testzip()
+                    pass
                 except RuntimeError as e:
                     if 'encrypted' in str(e) and not password:
                         upload_tasks[task_id].update({'status': 'error', 'error': 'Zip chiffré', 'password_required': True})
                         return
                 try:
+                    # Extraction
+                    print(f"   Extraction en cours vers {extract_dir}...", flush=True)
                     zip_ref.extractall(extract_dir, pwd=password.encode('utf-8') if password else None)
+                    print(f"   Extraction terminée", flush=True)
                 except RuntimeError as e:
-                    if 'Bad password' in str(e):
-                        upload_tasks[task_id].update({'status': 'error', 'error': 'Mot de passe incorrect', 'password_required': True})
+                    error_msg = str(e)
+                    if 'Bad password' in error_msg or 'password required' in error_msg:
+                        print(f"⚠️ Erreur mot de passe: {error_msg}", flush=True)
+                        upload_tasks[task_id].update({'status': 'error', 'error': 'Mot de passe requis ou incorrect', 'password_required': True})
                         return
+                    print(f"❌ Erreur extraction: {error_msg}", flush=True)
                     raise e
              scan_dir = extract_dir
 
         # 2. Scan
         upload_tasks[task_id]['status'] = 'scanning'
+        print(f"   Début scan répertoire...", flush=True)
         forensic_files = scan_directory(scan_dir)
+        print(f"   Scan terminé: {len(forensic_files)} fichiers trouvés", flush=True)
         upload_tasks[task_id]['total'] = len(forensic_files)
         
         # 3. Traitement Parallèle
