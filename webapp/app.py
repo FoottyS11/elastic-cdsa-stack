@@ -69,15 +69,15 @@ except ImportError as e:
     print(f"⚠️  Module regipy non disponible: {e}")
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2 GB max
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10 GB max
 app.config['UPLOAD_FOLDER'] = '/app/uploads'
 
 # Gestionnaire d'erreur pour fichiers trop volumineux
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return jsonify({
-        'error': 'Fichier trop volumineux. Limite: 2 GB',
-        'max_size_mb': 2048
+        'error': 'Fichier trop volumineux. Limite: 10 GB',
+        'max_size_mb': 10240
     }), 413
 
 # Configuration Logstash
