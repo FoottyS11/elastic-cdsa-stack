@@ -67,6 +67,24 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  # =============================================
+  # FORENSIC UPLOADER (Web Interface)
+  # =============================================
+  webapp:
+    build: ./webapp
+    container_name: forensic-uploader
+    environment:
+      - LOGSTASH_HOST=logstash
+      - LOGSTASH_PORT=5000
+    volumes:
+      - ./uploads:/app/uploads
+    ports:
+      - "8080:8080"
+    networks:
+      - elastic-net
+    depends_on:
+      - logstash
+
 volumes:
   elasticsearch-data:
   logstash-data:

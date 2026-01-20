@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Forensic Uploader - Sherlock HTB</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Forensic Uploader</h1>
+            <p class="subtitle">Upload de fichiers Sherlock HTB vers Elastic Stack</p>
+        </header>
+
+        <main>
+            <!-- Status des services -->
+            <div class="status-bar" id="status-bar">
+                <span class="status-item" id="status-webapp">
+                    <span class="status-dot"></span> Webapp
+                </span>
+                <span class="status-item" id="status-logstash">
+                    <span class="status-dot"></span> Logstash
+                </span>
+                <span class="status-item" id="status-evtx">
+                    <span class="status-dot"></span> EVTX Support
+                </span>
+            </div>
+
+            <!-- Zone d'upload -->
+            <div class="upload-zone" id="drop-zone">
+                <div class="upload-icon">📁</div>
+                <h2>Glissez-déposez votre fichier ZIP ici</h2>
+                <p>ou cliquez pour sélectionner</p>
+                <input type="file" id="file-input" accept=".zip,.evtx,.json,.csv,.log" hidden>
+                <div class="supported-types">
+                    <span class="type-badge">ZIP</span>
+                    <span class="type-badge">EVTX</span>
+                    <span class="type-badge">JSON</span>
+                    <span class="type-badge">CSV</span>
+                    <span class="type-badge">LOG</span>
+                </div>
+            </div>
+
+            <!-- Modal mot de passe -->
+            <div class="modal-overlay" id="password-modal" style="display: none;">
+                <div class="modal">
+                    <div class="modal-icon">🔐</div>
+                    <h3>ZIP Protégé par Mot de Passe</h3>
+                    <p>Ce fichier nécessite un mot de passe pour être extrait.</p>
+
+                    <div class="password-presets">
+                        <p class="presets-label">Mots de passe courants :</p>
+                        <button class="preset-btn" data-password="hacktheblue">hacktheblue</button>
+                        <button class="preset-btn" data-password="hackthebox">hackthebox</button>
+                        <button class="preset-btn" data-password="infected">infected</button>
+                    </div>
+
+                    <div class="password-custom">
+                        <input type="password" id="zip-password" placeholder="Ou entrez un mot de passe personnalisé">
+                        <button class="btn btn-primary" id="submit-password">Extraire</button>
+                    </div>
+
+                    <button class="btn btn-secondary" id="cancel-password">Annuler</button>
+                </div>
+            </div>
+
+            <!-- Barre de progression -->
+            <div class="progress-container" id="progress-container" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p class="progress-text" id="progress-text">Préparation...</p>
+            </div>
+
+            <!-- Résultats -->
+            <div class="results-container" id="results-container" style="display: none;">
+                <div class="results-header">
+                    <h2>📊 Résultats de l'import</h2>
+                    <div class="results-summary" id="results-summary"></div>
+                </div>
+
+                <div class="results-table-container">
+                    <table class="results-table" id="results-table">
+                        <thead>
+                            <tr>
+                                <th>Fichier</th>
+                                <th>Type</th>
+                                <th>Taille</th>
+                                <th>Événements</th>
+                                <th>Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="results-actions">
+                    <a href="#" class="btn btn-primary" id="kibana-link" target="_blank">
+                        🔎 Ouvrir dans Kibana
+                    </a>
+                    <button class="btn btn-secondary" id="new-upload-btn">
+                        📤 Nouvel Upload
+                    </button>
+                </div>
+            </div>
+
+            <!-- Erreurs -->
+            <div class="error-container" id="error-container" style="display: none;">
+                <div class="error-icon">⚠️</div>
+                <h3>Erreur</h3>
+                <p id="error-message"></p>
+                <button class="btn btn-secondary" id="retry-btn">Réessayer</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>Forensic Uploader v1.0 • Intégration Elastic Stack</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>
