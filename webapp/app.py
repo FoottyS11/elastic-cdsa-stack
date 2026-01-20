@@ -50,8 +50,16 @@ except ImportError as e:
     print(f"⚠️  Module volatility3 non disponible: {e}")
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2 GB max
 app.config['UPLOAD_FOLDER'] = '/app/uploads'
+
+# Gestionnaire d'erreur pour fichiers trop volumineux
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({
+        'error': 'Fichier trop volumineux. Limite: 2 GB',
+        'max_size_mb': 2048
+    }), 413
 
 # Configuration Logstash
 LOGSTASH_HOST = os.environ.get('LOGSTASH_HOST', 'logstash')
