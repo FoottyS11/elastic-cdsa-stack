@@ -762,8 +762,17 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
                 total_files = len(files)
                 print(f"   Extraction de {total_files} fichiers vers {extract_dir}...", flush=True)
                 
+                # Update task with extraction info
+                upload_tasks[task_id]['extract_total'] = total_files
+                upload_tasks[task_id]['extract_current'] = 0
+                
                 for i, member in enumerate(files):
                     try:
+                        # Update extraction progress for frontend
+                        if i % 50 == 0:  # Update every 50 files for performance
+                            upload_tasks[task_id]['extract_current'] = i
+                            upload_tasks[task_id]['extract_file'] = member.filename
+                        
                         # Log périodique
                         if i % 100 == 0:
                             print(f"   Extraction: {i}/{total_files} ({member.filename})", flush=True)
@@ -782,7 +791,9 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
                     except Exception as e:
                         print(f"❌ Erreur inconnue fichier {member.filename}: {e}", flush=True)
                         continue
-                        
+                
+                # Mark extraction as complete
+                upload_tasks[task_id]['extract_current'] = total_files
                 print(f"   Extraction terminée", flush=True)
 
              scan_dir = extract_dir

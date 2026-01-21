@@ -100,13 +100,52 @@ function clearTaskState() {
 }
 
 // Restaurer la tâche au chargement de la page
-function restoreTaskIfExists() {
+async function restoreTaskIfExists() {
     const state = getTaskState();
     if (state && state.taskId) {
-        console.log('🔄 Restauration de la tâche:', state.taskId);
-        showProgress();
-        updateProgress(50, 'Récupération du statut...');
-        pollTaskStatus(state.taskId);
+        console.log('🔄 Vérification tâche:', state.taskId);
+
+        try {
+            // First check if task still exists
+            const response = await fetch(`/api/task/${state.taskId}`);
+
+            if (!response.ok || response.status === 404) {
+                console.log('❌ Tâche expirée ou introuvable, nettoyage...');
+                clearTaskState();
+                return;
+            }
+
+            const task = await response.json();
+
+            // If task is already completed or in error, show results/error directly
+            if (task.status === 'completed') {
+                console.log('✅ Tâche terminée, affichage des résultats');
+                clearTaskState();
+                showResults(task.result);
+                return;
+            }
+
+            if (task.status === 'error') {
+                console.log('❌ Tâche en erreur');
+                clearTaskState();
+                if (task.password_required) {
+                    showPasswordModal();
+                } else {
+                    showError(task.error || 'Erreur lors du traitement');
+                }
+                return;
+            }
+
+            // Task is still in progress, resume polling
+            console.log('🔄 Reprise du suivi:', task.status);
+            showProgress();
+            updateProgress(50, 'Reprise du traitement...');
+            pollTaskStatus(state.taskId);
+
+        } catch (err) {
+            console.error('Erreur vérification tâche:', err);
+            clearTaskState();
+        }
     }
 }
 
@@ -284,7 +323,18 @@ function pollTaskStatus(taskId) {
 
                 // Mise à jour progression
                 if (task.status === 'extracting') {
-                    updateProgress(55, 'Extraction du ZIP...');
+                    // Show real-time extraction progress if available
+                    if (task.extract_total && task.extract_total > 0) {
+                        const extractPercent = task.extract_current / task.extract_total;
+                        const visualPercent = 50 + Math.round(extractPercent * 10); // 50-60%
+                        const fileName = task.extract_file ? truncate(task.extract_file, 25) : '';
+                        updateProgress(
+                            visualPercent,
+                            `Extraction: ${task.extract_current}/${task.extract_total} - ${fileName}`
+                        );
+                    } else {
+                        updateProgress(52, 'Extraction du ZIP...');
+                    }
                 } else if (task.status === 'scanning') {
                     updateProgress(60, 'Scan des fichiers...');
                 } else if (task.status === 'processing') {
