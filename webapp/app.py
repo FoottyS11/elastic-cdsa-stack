@@ -160,10 +160,13 @@ def parse_evtx_file(file_path, source_name):
                         root = ET.fromstring(xml_str)
                         
                         event_dict = xml_to_dict(root)
-                        event_dict['_source_file'] = source_name
-                        event_dict['_parsed_at'] = datetime.utcnow().isoformat()
                         
-                        yield event_dict
+                        # Wrap in Event to match SIEM dashboards (Event.System.EventID)
+                        wrapper = {'Event': event_dict}
+                        wrapper['_source_file'] = source_name
+                        wrapper['_parsed_at'] = datetime.utcnow().isoformat()
+                        
+                        yield wrapper
                     except Exception as e:
                         print(f"⚠️ Erreur parsing record dans {source_name}: {e}")
                         continue
@@ -655,37 +658,24 @@ def process_file_worker(file_info, sender, index_name):
 
 
 def scan_directory(directory):
-    """Scanne un répertoire et retourne les fichiers forensiques."""
+    """Scanne un répertoire et retourne uniquement les fichiers .evtx."""
     forensic_files = []
     
     for root, dirs, files in os.walk(directory):
         for filename in files:
             ext = Path(filename).suffix.lower()
-            filename_lower = filename.lower()
             
-            if ext in IGNORED_EXTENSIONS:
-                continue
-            
-            # Vérifier si c'est un fichier Registry par son nom
-            is_registry = filename_lower in REGISTRY_FILENAMES
-            
-            if ext in FORENSIC_EXTENSIONS or is_registry:
+            # STRICT FILTER: ONLY EVTX
+            if ext == '.evtx':
                 full_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(full_path, directory)
-                
-                if is_registry:
-                    file_type = 'Windows Registry'
-                    file_ext = '.reg'  # Extension virtuelle pour le traitement
-                else:
-                    file_type = FORENSIC_EXTENSIONS.get(ext, 'Unknown')
-                    file_ext = ext
                 
                 forensic_files.append({
                     'path': full_path,
                     'name': filename,
                     'relative_path': rel_path,
-                    'type': file_type,
-                    'extension': file_ext,
+                    'type': 'Windows Event Log',
+                    'extension': ext,
                     'size': os.path.getsize(full_path)
                 })
     
