@@ -413,6 +413,45 @@ header .subtitle {
     margin-bottom: 1.5rem;
 }
 
+.results-filters {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.filter-btn.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.filter-btn[data-filter="success"].active {
+    background: var(--accent-success);
+    border-color: var(--accent-success);
+}
+
+.filter-btn[data-filter="error"].active {
+    background: var(--accent-error);
+    border-color: var(--accent-error);
+}
+
 .results-table {
     width: 100%;
     border-collapse: collapse;

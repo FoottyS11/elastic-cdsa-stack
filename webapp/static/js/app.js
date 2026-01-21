@@ -66,6 +66,53 @@ fileInput.addEventListener('change', function () {
 // Variable globale pour stocker le fichier en attente de mot de passe
 let currentFile = null;
 
+// Clé localStorage pour persister le taskId
+const TASK_STORAGE_KEY = 'forensic_uploader_task';
+
+// Fonction pour sauvegarder l'état de la tâche
+function saveTaskState(taskId) {
+    localStorage.setItem(TASK_STORAGE_KEY, JSON.stringify({
+        taskId: taskId,
+        startedAt: Date.now()
+    }));
+}
+
+// Fonction pour récupérer l'état de la tâche
+function getTaskState() {
+    const stored = localStorage.getItem(TASK_STORAGE_KEY);
+    if (!stored) return null;
+    try {
+        const state = JSON.parse(stored);
+        // Expire après 1 heure
+        if (Date.now() - state.startedAt > 3600000) {
+            clearTaskState();
+            return null;
+        }
+        return state;
+    } catch {
+        return null;
+    }
+}
+
+// Fonction pour effacer l'état de la tâche
+function clearTaskState() {
+    localStorage.removeItem(TASK_STORAGE_KEY);
+}
+
+// Restaurer la tâche au chargement de la page
+function restoreTaskIfExists() {
+    const state = getTaskState();
+    if (state && state.taskId) {
+        console.log('🔄 Restauration de la tâche:', state.taskId);
+        showProgress();
+        updateProgress(50, 'Récupération du statut...');
+        pollTaskStatus(state.taskId);
+    }
+}
+
+// Appeler au chargement
+restoreTaskIfExists();
+
 function handleFile(file) {
     if (!file) return;
     currentFile = file;
@@ -163,6 +210,7 @@ function uploadWithPassword(file, password = null) {
                 // Cas 1: 202 DataViewAccepted -> Tâche démarrée
                 if (xhr.status === 202) {
                     console.log('✅ Tâche démarrée:', result.task_id);
+                    saveTaskState(result.task_id);  // Persist for page refresh
                     pollTaskStatus(result.task_id);
                     return;
                 }
@@ -217,6 +265,7 @@ function pollTaskStatus(taskId) {
 
                 if (task.status === 'error') {
                     clearInterval(pollInterval);
+                    clearTaskState();  // Clean up localStorage
                     if (task.password_required) {
                         showPasswordModal();
                     } else {
@@ -227,6 +276,7 @@ function pollTaskStatus(taskId) {
 
                 if (task.status === 'completed') {
                     clearInterval(pollInterval);
+                    clearTaskState();  // Clean up localStorage
                     updateProgress(100, 'Traitement terminé !');
                     setTimeout(() => showResults(task.result), 500);
                     return;
@@ -333,6 +383,7 @@ function showResults(result) {
 
     result.details.forEach(file => {
         const row = document.createElement('tr');
+        row.setAttribute('data-status', file.status);  // Add status for filtering
         row.innerHTML = `
             <td title="${file.file}">${truncate(file.file, 40)}</td>
             <td>${file.type}</td>
@@ -348,8 +399,55 @@ function showResults(result) {
         resultsBody.appendChild(row);
     });
 
+    // Setup filter buttons
+    setupFilterButtons();
+
     // Lien Kibana avec le bon Data View
     kibanaLink.href = result.kibana_url || 'http://localhost:5601/app/discover';
+}
+
+/**
+ * Configure les boutons de filtre pour les résultats
+ */
+function setupFilterButtons() {
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    const rows = document.querySelectorAll('#results-body tr');
+
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Update active button
+            filterBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const filter = btn.getAttribute('data-filter');
+
+            // Filter rows
+            rows.forEach(row => {
+                const status = row.getAttribute('data-status');
+                if (filter === 'all') {
+                    row.style.display = '';
+                } else if (filter === status) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // Update visible count
+            updateFilterCount(filter, rows);
+        });
+    });
+}
+
+/**
+ * Met à jour le comptage visible après filtrage
+ */
+function updateFilterCount(filter, rows) {
+    let visible = 0;
+    rows.forEach(row => {
+        if (row.style.display !== 'none') visible++;
+    });
+    console.log(`📊 Filtre "${filter}": ${visible} fichiers affichés`);
 }
 
 function showError(message) {
