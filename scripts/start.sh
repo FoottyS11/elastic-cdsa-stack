@@ -27,6 +27,27 @@ for i in {1..60}; do
     sleep 1
 done
 
+# Attente de Splunk
+echo ""
+echo "⏳ Attente de Splunk..."
+
+SPLUNK_READY=false
+for i in {1..90}; do
+    if curl -s http://localhost:8000/en-US/account/login 2>/dev/null | grep -q 'Splunk'; then
+        echo ""
+        echo "✅ Splunk est prêt !"
+        SPLUNK_READY=true
+        break
+    fi
+    printf "\r   ⏱️  %d/90 secondes..." $i
+    sleep 1
+done
+
+if [ "$SPLUNK_READY" = false ]; then
+    echo ""
+    echo "⚠️  Splunk n'est pas encore prêt (peut prendre jusqu'à 3 min au premier démarrage)"
+fi
+
 # Import des dashboards SIEM si Kibana est prêt
 if [ "$KIBANA_READY" = true ] && [ -d "$DASHBOARDS_DIR" ]; then
     echo ""
@@ -68,6 +89,7 @@ echo "📊 Accès aux services :"
 echo "   - 📤 Forensic Uploader : http://localhost:8080"
 echo "   - 📊 Kibana            : http://localhost:5601"
 echo "   - 🔍 Elasticsearch     : http://localhost:9200"
+echo "   - 🟢 Splunk            : http://localhost:8000"
 echo ""
 echo "📈 Dashboards SIEM disponibles :"
 echo "   - 🔐 Windows Security"
@@ -75,8 +97,14 @@ echo "   - 🔄 Lateral Movement"
 echo "   - 🔒 Persistence Mechanisms"
 echo "   - 💻 PowerShell Analysis"
 echo ""
+echo "🟢 Splunk :"
+echo "   - User: admin / Password: voir .env (SPLUNK_PASSWORD)"
+echo "   - HEC Token: voir .env (SPLUNK_HEC_TOKEN)"
+echo "   - Index forensic: forensic_evtx"
+echo ""
 echo "💡 Utilisation :"
 echo "   1. Ouvrir http://localhost:8080"
 echo "   2. Glisser-déposer un ZIP de Sherlock ou un .mem"
-echo "   3. Consulter les logs dans Kibana"
+echo "   3. Les logs sont envoyés vers Elastic ET Splunk"
+echo "   4. Consulter dans Kibana OU Splunk"
 echo "========================================================"

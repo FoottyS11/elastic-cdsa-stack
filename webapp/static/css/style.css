@@ -534,6 +534,16 @@ header .subtitle {
     box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
 }
 
+.btn-splunk {
+    background: linear-gradient(135deg, #65a637 0%, #4b8c2b 100%);
+    color: white;
+}
+
+.btn-splunk:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(101, 166, 55, 0.3);
+}
+
 .btn-secondary {
     background: var(--bg-hover);
     color: var(--text-primary);

@@ -1,14 +1,15 @@
-# 🔍 Elastic CDSA Stack + Forensic Uploader
+# 🔍 Elastic + Splunk CDSA Stack — Forensic Uploader
 
 <div align="center">
 
 ![Elasticsearch](https://img.shields.io/badge/Elasticsearch-8.11.3-00BFB3?style=for-the-badge&logo=elasticsearch)
 ![Kibana](https://img.shields.io/badge/Kibana-8.11.3-E8478B?style=for-the-badge&logo=kibana)
+![Splunk](https://img.shields.io/badge/Splunk-9.1.2-65A637?style=for-the-badge&logo=splunk)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker)
 
 **Plateforme automatisée d'ingestion et d'analyse de logs forensiques (EVTX, JSON, CSV)**
-*Spécialement conçue pour les challenges Sherlock HackTheBox & Certification CDSA*
+*Double ingestion Elastic + Splunk — Conçue pour les challenges Sherlock HackTheBox & Certification CDSA*
 
 [🚀 Démarrage Rapide](#-démarrage-rapide) • [✨ Fonctionnalités](#-fonctionnalités) • [🔧 Architecture](#-architecture) • [📖 Guide](#-guide-dutilisation)
 
@@ -18,10 +19,10 @@
 
 ## 🎯 À propos
 
-Ce projet est une **stack Elastic complète et pré-configurée** accompagnée d'une **Webapp d'ingestion intelligente**. Elle permet d'analyser des preuves forensiques en quelques secondes sans configuration complexe de Logstash ou Winlogbeat.
+Ce projet est une **stack Elastic + Splunk complète et pré-configurée** accompagnée d'une **Webapp d'ingestion intelligente**. Elle permet d'analyser des preuves forensiques en quelques secondes sans configuration complexe de Logstash ou Winlogbeat.
 
 **Pourquoi cet outil ?**  
-Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps à configurer l'ingestion des logs. Cet outil automatise tout : de l'extraction des ZIP chiffrés à la création des Data Views dans Kibana.
+Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps à configurer l'ingestion des logs. Cet outil automatise tout : de l'extraction des ZIP chiffrés à la création des Data Views dans Kibana — et envoie simultanément vers **Splunk** pour ceux qui préfèrent SPL à KQL.
 
 ---
 
@@ -61,6 +62,13 @@ Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps
 - **Logstash** : Pipeline configuré pour le routage dynamique des index.
 - **Optimisé** : Configuration "Single Node" légère pour tourner sur un laptop (4-8GB RAM).
 
+### 🟢 Splunk (NEW!)
+- **Splunk Enterprise 9.1** : Instance complète avec interface web.
+- **Double Ingestion** : Chaque upload envoie les EVTX simultanément vers Elastic ET Splunk via HEC.
+- **Index dédié** : `forensic_evtx` prêt à l'emploi avec sourcetype `WinEventLog:ForensicUpload`.
+- **SPL Ready** : Analysez les mêmes logs avec SPL pour pratiquer les deux langages de requête.
+- **Zéro Config** : HEC Token et index créés automatiquement au démarrage.
+
 ---
 
 ## 🔧 Architecture
@@ -73,8 +81,10 @@ graph LR
     
     subgraph Docker Network
         Web -->|TCP JSON| LS[🔧 Logstash]
+        Web -->|HEC JSON| SP[🟢 Splunk]
         LS -->|Indexation| ES[💾 Elasticsearch]
         ES <-->|Query/Dashboards| KB[📊 Kibana]
+        SP <-->|SPL Queries| SP
     end
     
     Web -->|API Call| KB
@@ -86,6 +96,8 @@ graph LR
 | **Kibana** | `5601` | Visualisation, Dashboards, SIEM. |
 | **Elasticsearch** | `9200` | Moteur de recherche et stockage. |
 | **Logstash** | `5000` | Pipeline d'ingestion TCP. |
+| **Splunk** | `8000` | Interface Splunk Web (Search & Reporting). |
+| **Splunk HEC** | `8088` | HTTP Event Collector (ingestion API). |
 
 ---
 
@@ -93,7 +105,7 @@ graph LR
 
 ### Prérequis
 - **Docker** et **Docker Compose**.
-- 4GB de RAM minimum alloués à Docker.
+- **6GB de RAM** minimum alloués à Docker (Elastic + Splunk).
 
 ### Installation
 
@@ -124,6 +136,28 @@ cd elastic-cdsa-stack
 1. Une fois l'import terminé, cliquez sur **"🔎 Ouvrir dans Kibana"**.
 2. Vous atterrissez directement dans **Discover** sur le bon index.
 3. Commencez vos requêtes KQL !
+
+### 3️⃣ Analyser dans Splunk
+
+1. Cliquez sur **"🟢 Ouvrir dans Splunk"** depuis la page de résultats.
+2. Ou accédez directement à **http://localhost:8000** (login: `admin` / mot de passe: voir `.env`).
+3. Les logs sont dans l'index `forensic_evtx`.
+4. Commencez vos requêtes SPL !
+
+**Exemples de requêtes SPL utiles :**
+```spl
+# Tous les événements forensiques
+index=forensic_evtx
+
+# Processus suspects
+index=forensic_evtx EventID=4688 "powershell.exe"
+
+# Connexions RDP
+index=forensic_evtx EventID=4624 LogonType=10
+
+# Timeline des événements
+index=forensic_evtx | timechart count by source
+```
 
 **Exemples de requêtes KQL utiles :**
 ```kql

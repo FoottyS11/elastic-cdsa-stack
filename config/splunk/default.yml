@@ -1,0 +1,10 @@
+---
+splunk:
+  hec:
+    enable: true
+    ssl: false
+    port: 8088
+    token: "forensic-hec-token-cdsa-2024"
+  apps_location:
+  http_enableSSL: false
+  password: "${SPLUNK_PASSWORD:-ChangeMeNow123!}"

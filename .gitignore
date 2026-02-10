@@ -1,17 +1,26 @@
 # =============================================
-# Git Ignore - Elastic Stack
+# Git Ignore - Elastic + Splunk CDSA Stack
 # =============================================
 
 # Données persistantes (ne pas versionner)
 data/
 *.data
 
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
 # Logs locaux
 logs/
 *.log
-
-# Fichiers sensibles (adapter le .env si besoin)
-# .env  # Décommentez si vous ne voulez pas versionner le .env
 
 # Fichiers temporaires
 *.tmp

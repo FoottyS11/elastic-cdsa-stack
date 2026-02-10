@@ -76,18 +76,55 @@ services:
     environment:
       - LOGSTASH_HOST=logstash
       - LOGSTASH_PORT=5000
+      - SPLUNK_HEC_URL=http://splunk:8088
+      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
     volumes:
       - ./uploads:/app/uploads
+      - splunk-ingest:/app/splunk-ingest
     ports:
       - "8080:8080"
     networks:
       - elastic-net
     depends_on:
       - logstash
+      - splunk
+
+  # =============================================
+  # SPLUNK (Forensic EVTX Analysis)
+  # =============================================
+  splunk:
+    image: splunk/splunk:9.1.2
+    container_name: splunk-cdsa
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD}
+      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN}
+    volumes:
+      - splunk-var:/opt/splunk/var
+      - splunk-etc:/opt/splunk/etc
+      - splunk-ingest:/opt/splunk-ingest
+      - ./config/splunk/default.yml:/tmp/defaults/default.yml:ro
+      - ./config/splunk/inputs.conf:/opt/splunk/etc/system/local/inputs.conf:ro
+      - ./config/splunk/props.conf:/opt/splunk/etc/system/local/props.conf:ro
+      - ./config/splunk/indexes.conf:/opt/splunk/etc/system/local/indexes.conf:ro
+    ports:
+      - "8000:8000"
+      - "8088:8088"
+    networks:
+      - elastic-net
+    healthcheck:
+      test: [ "CMD", "curl", "-s", "-f", "http://localhost:8000/en-US/account/login" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
 
 volumes:
   elasticsearch-data:
   logstash-data:
+  splunk-var:
+  splunk-etc:
+  splunk-ingest:
 
 
 networks:

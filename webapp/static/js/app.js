@@ -15,7 +15,8 @@ const btnSubmitPassword = document.getElementById('btn-submit-password') || docu
 const statusDots = {
     webapp: document.getElementById('status-webapp'),
     logstash: document.getElementById('status-logstash'),
-    evtx: document.getElementById('status-evtx')
+    evtx: document.getElementById('status-evtx'),
+    splunk: document.getElementById('status-splunk')
 };
 
 // Événements Drag & Drop
@@ -327,16 +328,15 @@ function pollTaskStatus(taskId) {
                     if (task.extract_total && task.extract_total > 0) {
                         const extractPercent = task.extract_current / task.extract_total;
                         const visualPercent = 50 + Math.round(extractPercent * 10); // 50-60%
-                        const fileName = task.extract_file ? truncate(task.extract_file, 25) : '';
                         updateProgress(
                             visualPercent,
-                            `Extraction: ${task.extract_current}/${task.extract_total} - ${fileName}`
+                            `Détection fichiers EVTX (${task.extract_current}/${task.extract_total})...`
                         );
                     } else {
-                        updateProgress(52, 'Extraction du ZIP...');
+                        updateProgress(52, 'Détection fichiers EVTX (Extraction)...');
                     }
                 } else if (task.status === 'scanning') {
-                    updateProgress(60, 'Scan des fichiers...');
+                    updateProgress(60, `${task.total || 0} fichiers EVTX trouvés`);
                 } else if (task.status === 'processing') {
                     // Calcul pourcentage entre 60% et 95%
                     const tasksPercent = task.total > 0 ? (task.current / task.total) : 0;
@@ -344,7 +344,7 @@ function pollTaskStatus(taskId) {
 
                     updateProgress(
                         visualPercent,
-                        `Traitement: ${task.current}/${task.total} - ${truncate(task.current_file || '', 30)}`
+                        `Importation ${task.current}/${task.total} fichiers`
                     );
                 } else if (task.status === 'starting') {
                     updateProgress(52, 'Démarrage...');
@@ -454,6 +454,12 @@ function showResults(result) {
 
     // Lien Kibana avec le bon Data View
     kibanaLink.href = result.kibana_url || 'http://localhost:5601/app/discover';
+
+    // Lien Splunk
+    const splunkLink = document.getElementById('splunk-link');
+    if (splunkLink) {
+        splunkLink.href = result.splunk_url || 'http://localhost:8000/en-US/app/search/search';
+    }
 }
 
 /**
@@ -535,11 +541,13 @@ function checkStatus() {
             updateStatusDot(statusDots.webapp, data.webapp === 'ok');
             updateStatusDot(statusDots.logstash, data.logstash === 'ok');
             updateStatusDot(statusDots.evtx, data.evtx_support);
+            updateStatusDot(statusDots.splunk, data.splunk === 'ok');
         })
         .catch(() => {
             updateStatusDot(statusDots.webapp, false);
             updateStatusDot(statusDots.logstash, false);
             updateStatusDot(statusDots.evtx, false);
+            updateStatusDot(statusDots.splunk, false);
         });
 }
 

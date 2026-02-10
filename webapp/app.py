@@ -84,6 +84,10 @@ def request_entity_too_large(error):
 LOGSTASH_HOST = os.environ.get('LOGSTASH_HOST', 'logstash')
 LOGSTASH_PORT = int(os.environ.get('LOGSTASH_PORT', 5000))
 
+# Configuration Splunk HEC
+SPLUNK_HEC_URL = os.environ.get('SPLUNK_HEC_URL', 'http://splunk:8088')
+SPLUNK_HEC_TOKEN = os.environ.get('SPLUNK_HEC_TOKEN', 'forensic-hec-token-cdsa-2024')
+
 # Extensions de fichiers forensiques supportés
 FORENSIC_EXTENSIONS = {
     '.evtx': 'Windows Event Log',
@@ -613,7 +617,104 @@ class LogstashSender:
         print(f"❌ Echec envoi de {len(batch)} logs après retries")
 
 
-def process_file_worker(file_info, sender, index_name):
+class SplunkHECSender:
+    """Envoie les événements vers Splunk via HTTP Event Collector."""
+    def __init__(self, hec_url, hec_token, index_name, source='forensic-uploader'):
+        self.hec_url = hec_url.rstrip('/')
+        self.hec_token = hec_token
+        self.index_name = index_name
+        self.source = source
+        self.queue = queue.Queue(maxsize=10000)
+        self.running = True
+        self.total_sent = 0
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        self.queue.put(None)
+        self.thread.join(timeout=30)
+
+    def enqueue(self, event):
+        self.queue.put(event)
+
+    def _run_loop(self):
+        import urllib.request
+        import urllib.error
+        batch = []
+        last_send = time.time()
+
+        while self.running or not self.queue.empty():
+            try:
+                try:
+                    item = self.queue.get(timeout=1.0)
+                except queue.Empty:
+                    item = None
+
+                if item is None:
+                    if batch and (time.time() - last_send > 1.0 or not self.running):
+                        self._send_batch(batch)
+                        batch = []
+                        last_send = time.time()
+                    if not self.running and self.queue.empty():
+                        break
+                    continue
+
+                # Remove internal hints
+                clean_event = {k: v for k, v in item.items() if not k.startswith('_index_hint')}
+                splunk_event = {
+                    'event': clean_event,
+                    'index': 'forensic_evtx',
+                    'sourcetype': 'WinEventLog:ForensicUpload',
+                    'source': clean_event.get('_source_file', self.source),
+                }
+                batch.append(json.dumps(splunk_event, default=str, separators=(',', ':')))
+
+                if len(batch) >= 100:
+                    self._send_batch(batch)
+                    batch = []
+                    last_send = time.time()
+
+            except Exception as e:
+                print(f"⚠️ Erreur thread Splunk sender: {e}")
+
+    def _send_batch(self, batch):
+        if not batch:
+            return
+        import urllib.request
+        import urllib.error
+
+        payload = '\n'.join(batch)
+        url = f"{self.hec_url}/services/collector/event"
+
+        for retry in range(3):
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=payload.encode('utf-8'),
+                    headers={
+                        'Authorization': f'Splunk {self.hec_token}',
+                        'Content-Type': 'application/json',
+                    },
+                    method='POST'
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    with self.lock:
+                        self.total_sent += len(batch)
+                    return
+            except urllib.error.HTTPError as e:
+                print(f"⚠️ Splunk HEC HTTP error: {e.code} - {e.read().decode()}")
+            except Exception as e:
+                print(f"⚠️ Splunk HEC error (retry {retry+1}): {e}")
+                time.sleep(1)
+
+        print(f"❌ Echec envoi Splunk de {len(batch)} events après retries")
+
+
+def process_file_worker(file_info, sender, index_name, splunk_sender=None):
     """Worker pour traiter un fichier et mettre les résultats dans la queue."""
     file_path = file_info['path']
     relative_path = file_info['relative_path']
@@ -649,6 +750,8 @@ def process_file_worker(file_info, sender, index_name):
         for event in generator:
             event['_index_hint'] = index_name
             sender.enqueue(event)
+            if splunk_sender:
+                splunk_sender.enqueue(event)
             events_count += 1
             
     except Exception as e:
@@ -727,6 +830,7 @@ def create_kibana_data_view(index_name):
 def process_upload_background(task_id, file_path, password, extract_dir, index_name):
     """Traitement background optimisé (Multi-thread + Queue)."""
     sender = None
+    splunk_sender = None
     print(f"🚀 Démarrage traitement background: task_id={task_id}", flush=True)
     print(f"   file_path={file_path}", flush=True)
     print(f"   extract_dir={extract_dir}", flush=True)
@@ -798,9 +902,12 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
         # 3. Traitement Parallèle
         upload_tasks[task_id]['status'] = 'processing'
         
-        # Initialiser Sender
+        # Initialiser Senders (Logstash + Splunk)
         sender = LogstashSender(LOGSTASH_HOST, LOGSTASH_PORT, index_name)
         sender.start()
+        
+        splunk_sender = SplunkHECSender(SPLUNK_HEC_URL, SPLUNK_HEC_TOKEN, index_name)
+        splunk_sender.start()
         
         results = []
         files_processed = 0
@@ -811,7 +918,7 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             future_to_file = {
-                executor.submit(process_file_worker, ffile, sender, index_name): ffile 
+                executor.submit(process_file_worker, ffile, sender, index_name, splunk_sender): ffile 
                 for ffile in forensic_files
             }
             
@@ -840,7 +947,9 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
         
         # Attendre la fin de l'envoi
         sender.stop()
+        splunk_sender.stop()
         total_events = sender.total_sent
+        splunk_events = splunk_sender.total_sent
         
         # 4. Data View
         data_view_created = create_kibana_data_view(index_name)
@@ -848,23 +957,39 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
         
         upload_tasks[task_id]['result'] = {
             'success': True,
-            'message': f'Optimized Import terminé! {total_events} événements.',
+            'message': f'Import terminé! {total_events} events → Elastic, {splunk_events} events → Splunk.',
             'index_name': index_name,
             'files_found': len(forensic_files),
             'files_processed': successful_files,
             'files_failed': len(results) - successful_files,
             'total_events': total_events,
+            'splunk_events': splunk_events,
             'data_view_created': data_view_created,
             'details': results,
-            'kibana_url': f'http://localhost:5601/app/discover#/?_g=()&_a=(dataSource:(dataViewId:\'{index_name}\',type:dataView))'
+            'kibana_url': f'http://localhost:5601/app/discover#/?_g=()&_a=(dataSource:(dataViewId:\'{index_name}\',type:dataView))',
+            'splunk_url': 'http://localhost:8000/en-US/app/search/search?q=search+index%3Dforensic_evtx'
         }
+        
+        # CLEANUP: Supprimer le ZIP et le dossier extrait
+        try:
+            print(f"🧹 Nettoyage des fichiers temporaires...", flush=True)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir)
+            print(f"✅ Nettoyage terminé pour {task_id}", flush=True)
+        except Exception as e:
+            print(f"⚠️ Erreur nettoyage: {e}", flush=True)
+
         upload_tasks[task_id]['status'] = 'completed'
+        print(f"🏁 Tâche terminée avec succès", flush=True)
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         upload_tasks[task_id] = {'status': 'error', 'error': str(e)}
         if sender: sender.stop()
+        if splunk_sender: splunk_sender.stop()
              
     finally:
         def clean_temp():
@@ -959,7 +1084,8 @@ def status():
         'webapp': 'ok',
         'evtx_support': EVTX_SUPPORT,
         'csv_support': CSV_SUPPORT,
-        'logstash': 'unknown'
+        'logstash': 'unknown',
+        'splunk': 'unknown'
     }
     
     # Tester la connexion à Logstash
@@ -971,6 +1097,19 @@ def status():
         status_info['logstash'] = 'ok' if result == 0 else 'error'
     except Exception:
         status_info['logstash'] = 'error'
+    
+    # Tester la connexion à Splunk HEC
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{SPLUNK_HEC_URL}/services/collector/health",
+            headers={'Authorization': f'Splunk {SPLUNK_HEC_TOKEN}'},
+            method='GET'
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            status_info['splunk'] = 'ok' if resp.status == 200 else 'error'
+    except Exception:
+        status_info['splunk'] = 'error'
     
     return jsonify(status_info)
 
