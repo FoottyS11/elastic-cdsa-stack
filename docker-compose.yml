@@ -104,10 +104,10 @@ services:
       - splunk-var:/opt/splunk/var
       - splunk-etc:/opt/splunk/etc
       - splunk-ingest:/opt/splunk-ingest
-      - ./config/splunk/default.yml:/tmp/defaults/default.yml:ro
-      - ./config/splunk/inputs.conf:/opt/splunk/etc/system/local/inputs.conf:ro
-      - ./config/splunk/props.conf:/opt/splunk/etc/system/local/props.conf:ro
-      - ./config/splunk/indexes.conf:/opt/splunk/etc/system/local/indexes.conf:ro
+      - ./config/splunk/default.yml:/tmp/defaults/default.yml
+      - ./config/splunk/inputs.conf:/opt/splunk/etc/system/local/inputs.conf
+      - ./config/splunk/props.conf:/opt/splunk/etc/system/local/props.conf
+      - ./config/splunk/indexes.conf:/opt/splunk/etc/system/local/indexes.conf
     ports:
       - "8000:8000"
       - "8088:8088"

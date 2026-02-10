@@ -784,6 +784,7 @@ def process_file_worker(file_info, sender, index_name, splunk_sender=None):
 def scan_directory(directory):
     """Scanne un répertoire et retourne tous les fichiers forensiques supportés."""
     forensic_files = []
+    print(f"   🔍 Scan récursif de: {directory}", flush=True)
     
     for root, dirs, files in os.walk(directory):
         for filename in files:
@@ -794,6 +795,7 @@ def scan_directory(directory):
             if ext in FORENSIC_EXTENSIONS:
                 full_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(full_path, directory)
+                print(f"      ✅ Trouvé: {rel_path} ({FORENSIC_EXTENSIONS[ext]})", flush=True)
                 
                 forensic_files.append({
                     'path': full_path,
@@ -864,6 +866,63 @@ def create_kibana_data_view(index_name):
         return False
 
 
+def extract_nested_zips(directory, password=None, depth=0, max_depth=5, exclude_paths=None):
+    """Extrait récursivement tous les ZIP imbriqués trouvés dans un répertoire."""
+    if depth >= max_depth:
+        print(f"   ⚠️ Profondeur max d'extraction atteinte ({max_depth})", flush=True)
+        return
+    
+    if exclude_paths is None:
+        exclude_paths = set()
+    
+    for root, dirs, files in os.walk(directory):
+        for filename in files:
+            if filename.lower().endswith('.zip'):
+                zip_path = os.path.join(root, filename)
+                
+                # Skip le ZIP source original
+                if zip_path in exclude_paths:
+                    continue
+                
+                extract_to = os.path.join(root, Path(filename).stem)
+                
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        os.makedirs(extract_to, exist_ok=True)
+                        print(f"   📦 Extraction ZIP imbriqué (depth={depth}): {filename} → {extract_to}", flush=True)
+                        
+                        for member in zf.infolist():
+                            try:
+                                zf.extract(member, extract_to, pwd=password.encode('utf-8') if password else None)
+                            except RuntimeError as e:
+                                if 'password required' in str(e) or 'Bad password' in str(e):
+                                    # Retry sans mot de passe au cas où le sous-zip n'est pas chiffré
+                                    try:
+                                        zf.extract(member, extract_to)
+                                    except Exception:
+                                        print(f"   ⚠️ Impossible d'extraire {member.filename}: {e}", flush=True)
+                                        continue
+                                else:
+                                    print(f"   ⚠️ Erreur extraction {member.filename}: {e}", flush=True)
+                                    continue
+                            except Exception as e:
+                                print(f"   ⚠️ Erreur extraction {member.filename}: {e}", flush=True)
+                                continue
+                        
+                        print(f"   ✅ ZIP imbriqué extrait: {filename}", flush=True)
+                    
+                    # Supprimer le ZIP imbriqué après extraction réussie
+                    os.remove(zip_path)
+                    
+                    # Récursion pour les ZIP dans le ZIP
+                    extract_nested_zips(extract_to, password, depth + 1, max_depth)
+                    
+                except zipfile.BadZipFile:
+                    print(f"   ⚠️ {filename} n'est pas un ZIP valide, ignoré", flush=True)
+                except Exception as e:
+                    print(f"   ❌ Erreur extraction ZIP imbriqué {filename}: {e}", flush=True)
+
+
 def process_upload_background(task_id, file_path, password, extract_dir, index_name):
     """Traitement background optimisé (Multi-thread + Queue)."""
     sender = None
@@ -928,6 +987,9 @@ def process_upload_background(task_id, file_path, password, extract_dir, index_n
                 print(f"   Extraction terminée", flush=True)
 
              scan_dir = extract_dir
+
+        # 1b. Extraction récursive des ZIP imbriqués
+        extract_nested_zips(scan_dir, password, exclude_paths={file_path})
 
         # 2. Scan
         upload_tasks[task_id]['status'] = 'scanning'
