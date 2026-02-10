@@ -63,9 +63,10 @@ Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps
 - **Optimisé** : Configuration "Single Node" légère pour tourner sur un laptop (4-8GB RAM).
 
 ### 🟢 Splunk (NEW!)
-- **Splunk Enterprise 9.1** : Instance complète avec interface web.
-- **Double Ingestion** : Chaque upload envoie les EVTX simultanément vers Elastic ET Splunk via HEC.
-- **Index dédié** : `forensic_evtx` prêt à l'emploi avec sourcetype `WinEventLog:ForensicUpload`.
+- **Splunk Enterprise 9.1 (Free License)** : Accès direct **sans mot de passe**.
+- **Double Ingestion** : Chaque upload envoie les fichiers simultanément vers Elastic ET Splunk via HEC.
+- **Multi-Format** : EVTX, Syslog, .log, JSON, CSV — tout est indexé avec le bon sourcetype.
+- **Index dédiés** : `forensic_evtx`, `forensic_syslog`, `forensic_json` prêts à l'emploi.
 - **SPL Ready** : Analysez les mêmes logs avec SPL pour pratiquer les deux langages de requête.
 - **Zéro Config** : HEC Token et index créés automatiquement au démarrage.
 
@@ -140,8 +141,8 @@ cd elastic-cdsa-stack
 ### 3️⃣ Analyser dans Splunk
 
 1. Cliquez sur **"🟢 Ouvrir dans Splunk"** depuis la page de résultats.
-2. Ou accédez directement à **http://localhost:8000** (login: `admin` / mot de passe: voir `.env`).
-3. Les logs sont dans l'index `forensic_evtx`.
+2. Ou accédez directement à **http://localhost:8000** (Free License = **pas de mot de passe**).
+3. Les logs sont dans les index `forensic_evtx`, `forensic_syslog`, `forensic_json`.
 4. Commencez vos requêtes SPL !
 
 **Exemples de requêtes SPL utiles :**

@@ -33,9 +33,9 @@ echo "⏳ Attente de Splunk..."
 
 SPLUNK_READY=false
 for i in {1..90}; do
-    if curl -s http://localhost:8000/en-US/account/login 2>/dev/null | grep -q 'Splunk'; then
+    if curl -s http://localhost:8000 2>/dev/null | grep -q 'splunk'; then
         echo ""
-        echo "✅ Splunk est prêt !"
+        echo "✅ Splunk est prêt ! (Free License - Pas de mot de passe)"
         SPLUNK_READY=true
         break
     fi
@@ -98,9 +98,9 @@ echo "   - 🔒 Persistence Mechanisms"
 echo "   - 💻 PowerShell Analysis"
 echo ""
 echo "🟢 Splunk :"
-echo "   - User: admin / Password: voir .env (SPLUNK_PASSWORD)"
+echo "   - Accès direct SANS mot de passe (Free License)"
 echo "   - HEC Token: voir .env (SPLUNK_HEC_TOKEN)"
-echo "   - Index forensic: forensic_evtx"
+echo "   - Index forensic: forensic_evtx, forensic_syslog, forensic_json"
 echo ""
 echo "💡 Utilisation :"
 echo "   1. Ouvrir http://localhost:8080"

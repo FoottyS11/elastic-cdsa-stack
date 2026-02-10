@@ -93,7 +93,8 @@ FORENSIC_EXTENSIONS = {
     '.evtx': 'Windows Event Log',
     '.json': 'JSON Log',
     '.csv': 'CSV Data',
-    '.log': 'Text Log',
+    '.log': 'Syslog / Text Log',
+    '.syslog': 'Syslog',
     '.txt': 'Text File',
     '.mem': 'Memory Dump',
     '.raw': 'Memory Dump (RAW)',
@@ -665,11 +666,31 @@ class SplunkHECSender:
 
                 # Remove internal hints
                 clean_event = {k: v for k, v in item.items() if not k.startswith('_index_hint')}
+                source_file = clean_event.get('_source_file', self.source)
+                
+                # Determine sourcetype and index based on file extension
+                src_ext = Path(source_file).suffix.lower() if source_file else ''
+                if src_ext == '.evtx':
+                    splunk_sourcetype = 'WinEventLog:ForensicUpload'
+                    splunk_index = 'forensic_evtx'
+                elif src_ext in ('.log', '.syslog'):
+                    splunk_sourcetype = 'syslog'
+                    splunk_index = 'forensic_syslog'
+                elif src_ext == '.json':
+                    splunk_sourcetype = '_json'
+                    splunk_index = 'forensic_json'
+                elif src_ext == '.csv':
+                    splunk_sourcetype = 'csv'
+                    splunk_index = 'forensic_json'
+                else:
+                    splunk_sourcetype = 'forensic:generic'
+                    splunk_index = 'forensic_evtx'
+                
                 splunk_event = {
                     'event': clean_event,
-                    'index': 'forensic_evtx',
-                    'sourcetype': 'WinEventLog:ForensicUpload',
-                    'source': clean_event.get('_source_file', self.source),
+                    'index': splunk_index,
+                    'sourcetype': splunk_sourcetype,
+                    'source': source_file,
                 }
                 batch.append(json.dumps(splunk_event, default=str, separators=(',', ':')))
 
@@ -733,7 +754,7 @@ def process_file_worker(file_info, sender, index_name, splunk_sender=None):
             generator, gen_error = parse_json_file(file_path, relative_path)
         elif ext == '.csv':
             generator, gen_error = parse_csv_file(file_path, relative_path)
-        elif ext in ['.log', '.txt']:
+        elif ext in ['.log', '.txt', '.syslog']:
             generator, gen_error = parse_log_file(file_path, relative_path)
         elif ext in ['.mem', '.raw', '.vmem', '.dmp']:
             generator, gen_error = parse_memory_file(file_path, relative_path)
@@ -761,15 +782,16 @@ def process_file_worker(file_info, sender, index_name, splunk_sender=None):
 
 
 def scan_directory(directory):
-    """Scanne un répertoire et retourne uniquement les fichiers .evtx."""
+    """Scanne un répertoire et retourne tous les fichiers forensiques supportés."""
     forensic_files = []
     
     for root, dirs, files in os.walk(directory):
         for filename in files:
+            file_lower = filename.lower()
             ext = Path(filename).suffix.lower()
             
-            # STRICT FILTER: ONLY EVTX
-            if ext == '.evtx':
+            # Check supported forensic extensions
+            if ext in FORENSIC_EXTENSIONS:
                 full_path = os.path.join(root, filename)
                 rel_path = os.path.relpath(full_path, directory)
                 
@@ -777,10 +799,25 @@ def scan_directory(directory):
                     'path': full_path,
                     'name': filename,
                     'relative_path': rel_path,
-                    'type': 'Windows Event Log',
+                    'type': FORENSIC_EXTENSIONS[ext],
                     'extension': ext,
                     'size': os.path.getsize(full_path)
                 })
+            # Check registry hive files (no extension)
+            elif file_lower in REGISTRY_FILENAMES or ext in ('.hve', '.dat'):
+                full_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(full_path, directory)
+                
+                forensic_files.append({
+                    'path': full_path,
+                    'name': filename,
+                    'relative_path': rel_path,
+                    'type': 'Registry Hive',
+                    'extension': '.reg',
+                    'size': os.path.getsize(full_path)
+                })
+            elif ext in IGNORED_EXTENSIONS:
+                continue
     
     return forensic_files
 
