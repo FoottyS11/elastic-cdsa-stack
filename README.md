@@ -63,7 +63,8 @@ Lors de challenges CTF (Blue Team) ou d'investigations, on perd souvent du temps
 - **Optimisé** : Configuration "Single Node" légère pour tourner sur un laptop (4-8GB RAM).
 
 ### 🟢 Splunk (NEW!)
-- **Splunk Enterprise 9.1 (Free License)** : Accès direct **sans mot de passe**.
+- **Splunk Enterprise 9.1 (Free License)** : Instance légère sans limite de temps.
+- **Login** : `admin` / `ChangeMeNow123!` (modifiable dans `.env`).
 - **Double Ingestion** : Chaque upload envoie les fichiers simultanément vers Elastic ET Splunk via HEC.
 - **Multi-Format** : EVTX, Syslog, .log, JSON, CSV — tout est indexé avec le bon sourcetype.
 - **Index dédiés** : `forensic_evtx`, `forensic_syslog`, `forensic_json` prêts à l'emploi.
@@ -141,7 +142,7 @@ cd elastic-cdsa-stack
 ### 3️⃣ Analyser dans Splunk
 
 1. Cliquez sur **"🟢 Ouvrir dans Splunk"** depuis la page de résultats.
-2. Ou accédez directement à **http://localhost:8000** (Free License = **pas de mot de passe**).
+2. Ou accédez directement à **http://localhost:8000** (login: `admin` / `ChangeMeNow123!`).
 3. Les logs sont dans les index `forensic_evtx`, `forensic_syslog`, `forensic_json`.
 4. Commencez vos requêtes SPL !
 
